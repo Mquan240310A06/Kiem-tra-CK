@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Sơ Lược Về Sự Phát Triển Của Vật Lí Học • Nhóm 1</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="style.css" />
+
+  <script>
+    (function () {
+      const DEFAULT_THEME = {
+        bg: '#0b0d12',
+        fg: '#f4f1ea',
+        accent: '#ff4d2e',
+        muted: 'rgba(244, 241, 234, 0.62)',
+        surface: 'rgba(255, 255, 255, 0.05)',
+        border: 'rgba(244, 241, 234, 0.16)'
+      };
+
+      function hexToRgb(hex) {
+        if (typeof hex !== 'string') return null;
+        const clean = hex.trim().replace('#', '');
+        if (!/^[0-9a-fA-F]{3}$|^[0-9a-fA-F]{6}$/.test(clean)) return null;
+        const full = clean.length === 3
+          ? clean.split('').map((c) => c + c).join('')
+          : clean;
+        const num = parseInt(full, 16);
+        return {
+          r: (num >> 16) & 255,
+          g: (num >> 8) & 255,
+          b: num & 255
+        };
+      }
+
+      window.App = {
+        currentSlide: 0,
+        totalSlides: 10,
+        slideTime: 0,
+        totalTime: 0,
+        isTransitioning: false,
+        mouse: { x: 960, y: 540, down: false },
+        slides: {},
+        transitions: {},
+        _els: {},
+        _dpr: 1,
+        _hideBarTimer: null,
+
+        applyTheme(theme) {
+          const t = Object.assign({}, DEFAULT_THEME, theme || {});
+          const targets = [document.documentElement];
+          if (this._els.stage) targets.push(this._els.stage);
+
+          const fgRgb = hexToRgb(t.fg);
+          const bgRgb = hexToRgb(t.bg);
+          const isLight = bgRgb
+            ? (0.2126 * bgRgb.r + 0.7152 * bgRgb.g + 0.0722 * bgRgb.b) > 140
+            : false;
+
+          const derivedMuted = theme && theme.muted
+            ? theme.muted
+            : fgRgb
+              ? `rgba(${fgRgb.r}, ${fgRgb.g}, ${fgRgb.b}, 0.64)`
+              : DEFAULT_THEME.muted;
+
+          const derivedSurface = theme && theme.surface
+            ? theme.surface
+            : isLight
+              ? 'rgba(12, 14, 18, 0.05)'
+              : 'rgba(255, 255, 255, 0.055)';
+
+          const derivedBorder = theme && theme.border
+            ? theme.border
+            : fgRgb
+              ? `rgba(${fgRgb.r}, ${fgRgb.g}, ${fgRgb.b}, 0.16)`
+              : DEFAULT_THEME.border;
+
+          targets.forEach((el) => {
+            el.style.setProperty('--bg', t.bg);
+            el.style.setProperty('--fg', t.fg);
+            el.style.setProperty('--accent', t.accent);
+            el.style.setProperty('--muted', derivedMuted);
+            el.style.setProperty('--surface', derivedSurface);
+            el.style.setProperty('--border', derivedBorder);
+          });
+
+          if (this._els.stage) {
+            this._els.stage.dataset.themeMode = isLight ? 'light' : 'dark';
+          }
+        },
+
+        _mountSlide(idx) {
+          const prevSlide = this.slides[this.currentSlide];
+          if (prevSlide && typeof prevSlide.destroy === 'function') {
+            try { prevSlide.destroy(); } catch (err) { console.error(err); }
+          }
+
+          this.currentSlide = idx;
+          this.slideTime = 0;
+
+          const uiLayer = this._els.uiLayer;
+          if (uiLayer) {
+            uiLayer.innerHTML = '';
+            uiLayer.scrollTop = 0;
+          }
+
+          const slide = this.slides[idx];
+          if (slide) {
+            this.applyTheme(slide.theme);
+            if (typeof slide.init === 'function' && uiLayer) {
+              slide.init(uiLayer);
+            }
+          } else {
+            this.applyTheme(DEFAULT_THEME);
+          }
+
+          this._syncChrome();
+        },
+
+        _syncChrome() {
+          const idx = this.currentSlide;
+          const slide = this.slides[idx] || {};
+          const pad2 = (n) => String(n).padStart(2, '0');
+
+          if (this._els.hudScene) {
+            const label = slide.hudLabel || slide.sceneName || slide.title || (idx === 0 ? 'INTRO' : `SCENE ${pad2(idx)}`);
+            this._els.hudScene.textContent = `${pad2(idx)} / ${String(label).toUpperCase()}`;
+          }
+
+          if (this._els.hudCounter) {
+            this._els.hudCounter.textContent = `SLIDE ${pad2(idx + 1)} / ${pad2(this.totalSlides)}`;
+          }
+
+          if (this._els.dots) {
+            this._els.dots.forEach((dot, i) => {
+              const active = i === idx;
+              dot.classList.toggle('is-active', active);
+              dot.setAttribute('aria-current', active ? 'step' : 'false');
+            });
+          }
+
+          if (this._els.btnPrev) {
+            this._els.btnPrev.disabled = idx <= 0;
+          }
+          if (this._els.btnNext) {
+            this._els.btnNext.disabled = idx >= this.totalSlides - 1;
+          }
+        },
+
+        goTo(idx) {
+          const nextIdx = Math.max(0, Math.min(this.totalSlides - 1, Number(idx)));
+          if (Number.isNaN(nextIdx) || nextIdx === this.currentSlide || this.isTransitioning) {
+            return;
+          }
+
+          const nextSlide = this.slides[nextIdx];
+          const transitionType = (nextSlide && nextSlide.transition) || 'wipe';
+
+          if (this.transitions && typeof this.transitions.play === 'function') {
+            this.isTransitioning = true;
+            let swapped = false;
+
+            const onMidpoint = () => {
+              if (swapped) return;
+              swapped = true;
+              this._mountSlide(nextIdx);
+            };
+
+            const onComplete = () => {
+              this.isTransitioning = false;
+            };
+
+            try {
+              this.transitions.play(transitionType, onMidpoint, onComplete);
+            } catch (err) {
+              console.error('Transition error:', err);
+              onMidpoint();
+              this.isTransitioning = false;
+            }
+          } else {
+            this._mountSlide(nextIdx);
+          }
+        },
+
+        next() {
+          if (this.currentSlide < this.totalSlides - 1) {
+            this.goTo(this.currentSlide + 1);
+          }
+        },
+
+        prev() {
+          if (this.currentSlide > 0) {
+            this.goTo(this.currentSlide - 1);
+          }
+        },
+
+        toggleFullscreen() {
+          const target = this._els.viewport || document.documentElement;
+          if (!document.fullscreenElement) {
+            if (target.requestFullscreen) {
+              target.requestFullscreen().catch(() => {});
+            }
+          } else if (document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+          }
+        },
+
+        revealPresenterBar() {
+          const bar = this._els.presenterBar;
+          if (!bar) return;
+          bar.classList.add('is-visible');
+          clearTimeout(this._hideBarTimer);
+          this._hideBarTimer = setTimeout(() => {
+            if (!bar.matches(':hover')) {
+              bar.classList.remove('is-visible');
+            }
+          }, 2400);
+        }
+      };
+    })();
+  </script>
+
+  <script defer src="transitions.js"></script>
+  <script defer src="slides-part1.js"></script>
+  <script defer src="slides-part2.js"></script>
+  <script defer src="slides-part3.js"></script>
+</head>
+<body>
+  <main id="viewport" class="viewport">
+    <section id="stage" class="stage" aria-label="Showreel Stage 16:9">
+      <!-- Layer 1: Full-screen procedural vector graphics & physics simulations -->
+      <canvas id="art-canvas" class="stage-canvas art-canvas"></canvas>
+
+      <!-- Layer 2: Crisp 1920x1080 scaled HTML/SVG typography, toggles & quiz cards -->
+      <div id="ui-layer" class="ui-layer"></div>
+
+      <!-- Persistent Camera Viewfinder HUD (z-index: 50) -->
+      <aside id="viewfinder-hud" class="viewfinder-hud" aria-hidden="true">
+        <div class="crop-mark crop-tl"></div>
+        <div class="crop-mark crop-tr"></div>
+        <div class="crop-mark crop-bl"></div>
+        <div class="crop-mark crop-br"></div>
+
+        <div class="hud-corner hud-tl">
+          <span class="hud-rec-dot"></span>
+          <span>VẬT LÍ HỌC • NHÓM 1</span>
+        </div>
+
+        <div class="hud-corner hud-tr">
+          <span id="hud-scene">00 / INTRO</span>
+        </div>
+
+        <div class="hud-corner hud-bl">
+          <span>1920 x 1080 • 60 FPS • SHOWREEL ENGINE</span>
+        </div>
+
+        <div class="hud-corner hud-br">
+          <span id="hud-timecode" class="hud-timecode">00:00:00:00</span>
+          <span class="hud-sep">•</span>
+          <span id="hud-counter">SLIDE 01 / 10</span>
+        </div>
+      </aside>
+
+      <!-- Auto-Hiding Presenter Bar (z-index: 60) -->
+      <nav id="presenter-bar" class="presenter-bar is-visible" aria-label="Điều khiển trình chiếu">
+        <button id="btn-prev" class="bar-btn" type="button" title="Slide trước (←)">
+          <span aria-hidden="true">←</span> PREV
+        </button>
+
+        <div id="progress-dots" class="progress-dots" role="tablist" aria-label="Chọn slide">
+          <button class="dot is-active" type="button" data-slide="0" aria-label="Slide 1"></button>
+          <button class="dot" type="button" data-slide="1" aria-label="Slide 2"></button>
+          <button class="dot" type="button" data-slide="2" aria-label="Slide 3"></button>
+          <button class="dot" type="button" data-slide="3" aria-label="Slide 4"></button>
+          <button class="dot" type="button" data-slide="4" aria-label="Slide 5"></button>
+          <button class="dot" type="button" data-slide="5" aria-label="Slide 6"></button>
+          <button class="dot" type="button" data-slide="6" aria-label="Slide 7"></button>
+          <button class="dot" type="button" data-slide="7" aria-label="Slide 8"></button>
+          <button class="dot" type="button" data-slide="8" aria-label="Slide 9"></button>
+          <button class="dot" type="button" data-slide="9" aria-label="Slide 10"></button>
+        </div>
+
+        <button id="btn-next" class="bar-btn" type="button" title="Slide tiếp theo (→ / Space)">
+          NEXT <span aria-hidden="true">→</span>
+        </button>
+
+        <span class="bar-divider" aria-hidden="true"></span>
+
+        <button id="btn-fullscreen" class="bar-btn bar-btn-accent" type="button" title="Toàn màn hình (F)">
+          FULLSCREEN (F)
+        </button>
+      </nav>
+
+      <!-- Layer 3: Top-layer full-screen transition curtain (z-index: 999) -->
+      <canvas id="fx-curtain" class="stage-canvas fx-curtain"></canvas>
+    </section>
+  </main>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const App = window.App;
+      const viewport = document.getElementById('viewport');
+      const stage = document.getElementById('stage');
+      const artCanvas = document.getElementById('art-canvas');
+      const fxCurtain = document.getElementById('fx-curtain');
+      const uiLayer = document.getElementById('ui-layer');
+      const presenterBar = document.getElementById('presenter-bar');
+      const btnPrev = document.getElementById('btn-prev');
+      const btnNext = document.getElementById('btn-next');
+      const btnFullscreen = document.getElementById('btn-fullscreen');
+      const dots = Array.from(document.querySelectorAll('#progress-dots .dot'));
+      const hudScene = document.getElementById('hud-scene');
+      const hudCounter = document.getElementById('hud-counter');
+      const hudTimecode = document.getElementById('hud-timecode');
+
+      const artCtx = artCanvas.getContext('2d', { alpha: false });
+      const fxCtx = fxCurtain.getContext('2d', { alpha: true });
+
+      App._els = {
+        viewport,
+        stage,
+        artCanvas,
+        fxCurtain,
+        uiLayer,
+        presenterBar,
+        btnPrev,
+        btnNext,
+        btnFullscreen,
+        dots,
+        hudScene,
+        hudCounter,
+        hudTimecode
+      };
+
+      const LOGICAL_W = 1920;
+      const LOGICAL_H = 1080;
+
+      function resizeStage() {
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const scale = Math.min(vw / LOGICAL_W, vh / LOGICAL_H);
+        const stageW = Math.round(LOGICAL_W * scale);
+        const stageH = Math.round(LOGICAL_H * scale);
+
+        stage.style.width = `${stageW}px`;
+        stage.style.height = `${stageH}px`;
+        stage.style.setProperty('--stage-scale', String(stageW / LOGICAL_W));
+
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        App._dpr = dpr;
+
+        const backingW = Math.round(LOGICAL_W * dpr);
+        const backingH = Math.round(LOGICAL_H * dpr);
+
+        if (artCanvas.width !== backingW || artCanvas.height !== backingH) {
+          artCanvas.width = backingW;
+          artCanvas.height = backingH;
+        }
+        if (fxCurtain.width !== backingW || fxCurtain.height !== backingH) {
+          fxCurtain.width = backingW;
+          fxCurtain.height = backingH;
+        }
+      }
+
+      function updateMouseFromEvent(e) {
+        const rect = stage.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        const clientX = e.touches && e.touches[0] ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches && e.touches[0] ? e.touches[0].clientY : e.clientY;
+        App.mouse.x = Math.max(0, Math.min(LOGICAL_W, ((clientX - rect.left) / rect.width) * LOGICAL_W));
+        App.mouse.y = Math.max(0, Math.min(LOGICAL_H, ((clientY - rect.top) / rect.height) * LOGICAL_H));
+      }
+
+      window.addEventListener('resize', resizeStage);
+      document.addEventListener('fullscreenchange', () => {
+        resizeStage();
+        if (btnFullscreen) {
+          btnFullscreen.textContent = document.fullscreenElement ? 'EXIT (F)' : 'FULLSCREEN (F)';
+        }
+      });
+
+      stage.addEventListener('pointermove', (e) => {
+        updateMouseFromEvent(e);
+        App.revealPresenterBar();
+      });
+
+      stage.addEventListener('pointerdown', (e) => {
+        updateMouseFromEvent(e);
+        App.mouse.down = true;
+        App.revealPresenterBar();
+      });
+
+      window.addEventListener('pointerup', () => {
+        App.mouse.down = false;
+      });
+
+      stage.addEventListener('touchstart', (e) => {
+        updateMouseFromEvent(e);
+        App.mouse.down = true;
+        App.revealPresenterBar();
+      }, { passive: true });
+
+      stage.addEventListener('touchmove', (e) => {
+        updateMouseFromEvent(e);
+      }, { passive: true });
+
+      window.addEventListener('touchend', () => {
+        App.mouse.down = false;
+      });
+
+      btnPrev.addEventListener('click', () => App.prev());
+      btnNext.addEventListener('click', () => App.next());
+      btnFullscreen.addEventListener('click', () => App.toggleFullscreen());
+
+      dots.forEach((dot) => {
+        dot.addEventListener('click', () => {
+          const targetIdx = Number(dot.dataset.slide);
+          App.goTo(targetIdx);
+        });
+      });
+
+      presenterBar.addEventListener('mouseleave', () => {
+        App.revealPresenterBar();
+      });
+
+      window.addEventListener('keydown', (e) => {
+        const tag = e.target && e.target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) {
+          return;
+        }
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+        if (e.key === 'ArrowRight' || e.code === 'Space') {
+          e.preventDefault();
+          App.next();
+          App.revealPresenterBar();
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          App.prev();
+          App.revealPresenterBar();
+        } else if (e.key === 'f' || e.key === 'F') {
+          e.preventDefault();
+          App.toggleFullscreen();
+        } else if (/^[1-9]$/.test(e.key)) {
+          e.preventDefault();
+          App.goTo(Number(e.key) - 1);
+          App.revealPresenterBar();
+        } else if (e.key === '0') {
+          e.preventDefault();
+          App.goTo(9);
+          App.revealPresenterBar();
+        }
+      });
+
+      function formatTimecode(seconds) {
+        const totalFrames = Math.floor(seconds * 60);
+        const frames = totalFrames % 60;
+        const totalSec = Math.floor(seconds);
+        const secs = totalSec % 60;
+        const mins = Math.floor(totalSec / 60) % 60;
+        const hrs = Math.floor(totalSec / 3600);
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${pad(hrs)}:${pad(mins)}:${pad(secs)}:${pad(frames)}`;
+      }
+
+      resizeStage();
+      App._mountSlide(0);
+      App.revealPresenterBar();
+
+      let lastTimestamp = performance.now();
+
+      function tick(now) {
+        const rawDt = (now - lastTimestamp) / 1000;
+        lastTimestamp = now;
+        const dt = Math.min(Math.max(rawDt, 0), 0.033);
+
+        App.slideTime += dt;
+        App.totalTime += dt;
+
+        const dpr = App._dpr;
+
+        // Render Slide Art Canvas (1920x1080 logical space)
+        artCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const bg = getComputedStyle(stage).getPropertyValue('--bg').trim() || '#0b0d12';
+        artCtx.fillStyle = bg;
+        artCtx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+
+        const activeSlide = App.slides[App.currentSlide];
+        if (activeSlide && typeof activeSlide.render === 'function') {
+          artCtx.save();
+          activeSlide.render(artCtx, dt, App.slideTime, App.mouse);
+          artCtx.restore();
+        }
+
+        // Render FX Transition Curtain Canvas (1920x1080 logical space)
+        fxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        fxCtx.clearRect(0, 0, LOGICAL_W, LOGICAL_H);
+
+        if (App.transitions && typeof App.transitions.render === 'function') {
+          fxCtx.save();
+          App.transitions.render(fxCtx, dt);
+          fxCtx.restore();
+        }
+
+        // Safety sync if transition engine tracks its own active flag
+        if (App.isTransitioning && App.transitions && App.transitions.active === false) {
+          App.isTransitioning = false;
+        }
+
+        if (hudTimecode) {
+          hudTimecode.textContent = formatTimecode(App.totalTime);
+        }
+
+        requestAnimationFrame(tick);
+      }
+
+      requestAnimationFrame(tick);
+    });
+  </script>
+</body>
+</html>
