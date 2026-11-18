@@ -1,1068 +1,1585 @@
 /**
  * intro-director.js
- * 22-Second, 60 FPS Cinematic Animated Intro Orchestrator
- * Combines window.IntroAudio, window.IntroBG, and window.IntroRig,
- * then hands off cleanly to window.App (Grade 10 Physics Presentation).
+ * 135.0-Second (02:15) 60 FPS Documentary Intro Director for Grade 10 Physics (Nhóm 1).
  *
- * Exposes: window.IntroDirector
+ * ARCHITECTURE & ANTI-FREEZE GUARANTEES:
+ * - Data-driven `SCENES` array containing all 14 scenes (0.0s -> 135.0s).
+ * - Anti-black-screen safeguards: Hardcoded 1920x1080 canvas, synchronous initial
+ *   `renderFrame(ctx, 0)` call on mount, and full `try/catch` isolation.
+ * - Zero `while` loops; every `for` loop is strictly bounded (<= 60 iterations).
+ * - Interactive `#FF4D2A` timeline scrubber bar with live `MM:SS / 02:15` readout,
+ *   centered `▶ PHÁT INTRO (02:15)` button, and `Vào Slide thuyết trình →` skip button.
  */
-(function (global) {
+
+(function () {
   'use strict';
 
-  const LOGICAL_W = 1920;
-  const LOGICAL_H = 1080;
-  const TOTAL_DURATION = 22.0;
+  const W = 1920;
+  const H = 1080;
+  const TOTAL_DURATION = 135.0; // seconds (02:15)
 
-  function clamp(v, a, b) {
-    return v < a ? a : v > b ? b : v;
-  }
-
-  function lerp(a, b, t) {
-    return a + (b - a) * t;
-  }
-
-  function easeOutCubic(x) {
-    const t = clamp(x, 0, 1);
-    return 1 - Math.pow(1 - t, 3);
-  }
-
-  function easeOutBack(x) {
-    const t = clamp(x, 0, 1);
-    const c1 = 1.70158;
-    const c3 = c1 + 1;
-    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
-  }
-
-  // =========================================================================
-  // 1. Timeline Cues (Audio SFX & Vietnamese Narration)
-  // =========================================================================
-  const DIALOGUE_CUES = [
+  // ============================================================================
+  // 1. DATA-DRIVEN 14-SCENE STORYBOARD (0.0s to 135.0s)
+  // ============================================================================
+  const SCENES = [
     {
-      id: 'line1',
-      start: 0.18,
-      end: 4.05,
-      rate: 1.02,
-      speaker: '',
-      text: 'Hãy tưởng tượng... điều gì sẽ xảy ra nếu mọi định luật Vật lí đột ngột biến mất?',
+      id: 1,
+      start: 0.0,
+      end: 9.0,
+      shot: 'rooftop',
+      clipId: 1,
+      role: 'narrator',
+      sfx: 'whoosh',
+      hologram: 'moon_apple',
+      eraTag: 'KHỞI NGUỒN CỦA SỰ TÒ MÒ • BẦU TRỜI ĐÊM',
+      subtitle:
+        'Hãy nhìn lên bầu trời đêm nay và tự hỏi một câu tưởng chừng ngớ ngẩn: Tại sao Mặt Trăng khổng lồ kia không rơi xuống đầu chúng ta... trong khi quả táo trên tay lại rơi?'
     },
     {
-      id: 'line2',
-      start: 4.35,
-      end: 8.62,
-      rate: 1.0,
-      speaker: '',
-      text: 'Không trọng lực. Không quán tính. Mọi chuyển động trong vũ trụ đều đóng băng.',
+      id: 2,
+      start: 9.0,
+      end: 18.5,
+      shot: 'cafe',
+      clipId: 2,
+      role: 'quan',
+      sfx: 'tick',
+      hologram: 'ancient_philosophy',
+      eraTag: 'THỜI KÌ TIỀN VẬT LÍ • PYTHAGORAS & ARISTOTLE (350 TCN)',
+      subtitle:
+        'Minh Quân: Suốt hơn hai nghìn năm, từ thời Pythagoras đến Aristotle, con người tin rằng vật nặng luôn rơi nhanh hơn vật nhẹ — chỉ bằng suy luận mà chẳng ai buồn kiểm chứng!'
     },
     {
-      id: 'line3',
-      start: 8.95,
-      end: 12.35,
-      rate: 1.08,
-      speaker: 'Tuấn Minh',
-      voiceText: 'Ủa Quân... sao ly cà phê với quả táo bay lơ lửng hết vậy?!',
-      text: 'Tuấn Minh: Ủa Quân... sao ly cà phê với quả táo bay lơ lửng hết vậy?!',
+      id: 3,
+      start: 18.5,
+      end: 28.5,
+      shot: 'macro',
+      clipId: 3,
+      role: 'minh',
+      sfx: 'zeroG',
+      hologram: 'galileo_vacuum',
+      eraTag: 'PHƯƠNG PHÁP THỰC NGHIỆM • GALILEO GALILEI (1600)',
+      subtitle:
+        'Tuấn Minh: Khoan đã! Nếu hút sạch không khí ra khỏi ống thủy tinh này, liệu một chiếc lông vũ mong manh có rơi nhanh ngang ngửa một quả cầu sắt nặng trịch không?'
     },
     {
-      id: 'line4',
-      start: 12.68,
-      end: 17.32,
-      rate: 1.02,
-      speaker: 'Minh Quân',
-      voiceText: 'Vì Vật lí chính là quy luật vận hành cả thế giới này.',
-      text: 'Minh Quân: Vì Vật lí chính là quy luật vận hành cả thế giới này.',
+      id: 4,
+      start: 28.5,
+      end: 38.5,
+      shot: 'cafe',
+      clipId: 4,
+      role: 'quan',
+      sfx: 'whoosh',
+      hologram: 'newton_orbit',
+      eraTag: 'CƠ HỌC CỔ ĐIỂN • ISAAC NEWTON (1687)',
+      subtitle:
+        'Minh Quân: Galileo đã chứng minh điều đó! Và hơn 300 năm trước, Newton nhận ra lực kéo quả táo rơi cũng chính là sợi dây vô hình giữ cả Hệ Mặt Trời không văng vào vũ trụ.'
     },
+    {
+      id: 5,
+      start: 38.5,
+      end: 48.0,
+      shot: 'macro',
+      clipId: 5,
+      role: 'minh',
+      sfx: 'thud',
+      hologram: 'steam_engine',
+      eraTag: 'NHIỆT ĐỘNG LỰC HỌC & CÁCH MẠNG CÔNG NGHIỆP • JAMES WATT (1765)',
+      subtitle:
+        'Tuấn Minh: Từ cơ học Newton đến máy hơi nước của James Watt năm 1765, nhân loại bỗng nhiên biến được hơi nóng vô hình thành sức mạnh dời non lấp biển!'
+    },
+    {
+      id: 6,
+      start: 48.0,
+      end: 58.0,
+      shot: 'cafe',
+      clipId: 6,
+      role: 'narrator',
+      sfx: 'spark',
+      hologram: 'volta_orsted',
+      eraTag: 'ĐIỆN HỌC & TỪ HỌC • VOLTA (1800) & ØRSTED (1820)',
+      subtitle:
+        'Nhưng Vật lí chưa dừng lại ở đó. Điều gì xảy ra khi Volta nhúng kẽm và đồng vào axit tạo ra dòng điện đầu tiên, và Ørsted phát hiện dòng điện làm lệch kim nam châm?'
+    },
+    {
+      id: 7,
+      start: 58.0,
+      end: 68.5,
+      shot: 'closeup_minh_to_macro',
+      clipId: 7,
+      role: 'quan',
+      sfx: 'spark',
+      hologram: 'faraday_maxwell',
+      eraTag: 'TRƯỜNG ĐIỆN TỪ & QUANG HỌC • FARADAY (1831) & MAXWELL (1865)',
+      subtitle:
+        'Minh Quân: Từ đĩa đồng quay trong từ trường của chàng thợ đóng sách nghèo Faraday, cùng 4 phương trình Maxwell... con người nhận ra ánh sáng chính là sóng điện từ!'
+    },
+    {
+      id: 8,
+      start: 68.5,
+      end: 78.5,
+      shot: 'cafe_dark',
+      clipId: 8,
+      role: 'minh',
+      sfx: 'thud',
+      hologram: 'uv_catastrophe',
+      eraTag: 'KHỦNG HOẢNG CUỐI THẾ KỈ 19 • TAI BIẾN CỰC TÍM',
+      subtitle:
+        'Tuấn Minh: Cuối thế kỉ 19, các nhà vật lí tưởng rằng mình đã hiểu hết vũ trụ... cho đến khi vật lí cổ điển hoàn toàn sụp đổ trước bức xạ của một vật đen ở cấp độ nguyên tử!'
+    },
+    {
+      id: 9,
+      start: 78.5,
+      end: 89.0,
+      shot: 'macro',
+      clipId: 9,
+      role: 'quan',
+      sfx: 'quantum',
+      hologram: 'planck_quanta',
+      eraTag: 'KHAI SINH CƠ HỌC LƯỢNG TỬ • MAX PLANCK (1900)',
+      subtitle:
+        'Minh Quân: Năm 1900, Max Planck đưa ra giả thuyết táo bạo: Năng lượng không chảy liên tục, mà chia thành từng gói nhỏ gọi là lượng tử — khai sinh cơ học lượng tử đầy bí ẩn!'
+    },
+    {
+      id: 10,
+      start: 89.0,
+      end: 100.5,
+      shot: 'cafe',
+      clipId: 10,
+      role: 'minh',
+      sfx: 'tick',
+      hologram: 'einstein_spacetime',
+      eraTag: 'THUYẾT TƯƠNG ĐỐI • ALBERT EINSTEIN (1905 & 1916)',
+      subtitle:
+        'Tuấn Minh: Và rồi Albert Einstein xuất hiện với công thức E = mc²! Bạn có tin được không: nếu bay gần tốc độ ánh sáng, đồng hồ của bạn sẽ chạy chậm hơn người ở Trái Đất?'
+    },
+    {
+      id: 11,
+      start: 100.5,
+      end: 110.5,
+      shot: 'closeup_quan',
+      clipId: 11,
+      role: 'quan',
+      sfx: 'zeroG',
+      hologram: 'nuclear_peace',
+      eraTag: 'TRÁCH NHIỆM CỦA KHOA HỌC • NĂNG LƯỢNG HẠT NHÂN VÌ HÒA BÌNH',
+      subtitle:
+        'Minh Quân: Chính Einstein cũng từng day dứt khi công thức của mình mở đường cho năng lượng hạt nhân, và ông đã kiên quyết phản đối việc dùng bom nguyên tử trong chiến tranh.'
+    },
+    {
+      id: 12,
+      start: 110.5,
+      end: 121.0,
+      shot: 'cafe_fourth_wall',
+      clipId: 12,
+      role: 'narrator',
+      sfx: 'quantum',
+      hologram: 'modern_pillars',
+      eraTag: 'VẬT LÍ HIỆN ĐẠI • HẠT CƠ BẢN, LASER & VŨ TRỤ HỌC',
+      subtitle:
+        'Ngày nay, Vật lí vừa lặn sâu vào thế giới hạt nano, tạo ra laser và bán dẫn, vừa vươn tầm mắt giải mã nguồn gốc của hàng tỉ thiên hà!'
+    },
+    {
+      id: 13,
+      start: 121.0,
+      end: 129.5,
+      shot: 'galaxy_zoom',
+      clipId: 13,
+      role: 'quan',
+      sfx: 'whoosh',
+      hologram: 'galaxy_snap',
+      eraTag: 'SẴN SÀNG KHÁM PHÁ • NHÓM 1 — VẬT LÍ 10',
+      subtitle:
+        'Minh Quân: Vậy hành trình đi từ tư duy triết học đến khám phá vũ trụ này đã diễn ra như thế nào? Hãy cùng Nhóm 1 lật mở từng trang lịch sử ngay bây giờ!'
+    },
+    {
+      id: 14,
+      start: 129.5,
+      end: 135.0,
+      shot: 'title_card',
+      clipId: null,
+      role: null,
+      sfx: 'quantum',
+      hologram: null,
+      eraTag: 'BÀI MỞ ĐẦU • VẬT LÍ 10',
+      subtitle: ''
+    }
   ];
 
-  const SFX_CUES = [
-    { id: 'cut_scene2_whoosh', time: 4.2, sfx: 'whoosh' },
-    { id: 'cut_scene2_zerog', time: 4.24, sfx: 'zeroG' },
-    { id: 'mug_bubble_1', time: 4.95, sfx: 'bubble' },
-    { id: 'mug_bubble_2', time: 5.75, sfx: 'bubble' },
-    { id: 'mug_bubble_3', time: 6.65, sfx: 'bubble' },
-    { id: 'mug_bubble_4', time: 7.55, sfx: 'bubble' },
-    { id: 'cut_scene3_whoosh', time: 8.8, sfx: 'whoosh' },
-    { id: 'cut_scene4_whoosh', time: 12.5, sfx: 'whoosh' },
-    { id: 'quan_finger_snap', time: 14.3, sfx: 'snap' },
-    { id: 'apple_table_thud', time: 14.78, sfx: 'thud' },
-    { id: 'apple_bounce_tick', time: 15.04, sfx: 'tick' },
-    { id: 'cut_scene5_whoosh', time: 17.5, sfx: 'whoosh' },
-    { id: 'scene5_tick_1', time: 17.65, sfx: 'tick' },
-    { id: 'scene5_tick_2', time: 18.05, sfx: 'tick' },
-    { id: 'scene5_tick_3', time: 18.45, sfx: 'tick' },
-    { id: 'cut_scene6_whoosh', time: 19.5, sfx: 'whoosh' },
-    { id: 'scene6_title_tick', time: 19.72, sfx: 'tick' },
-  ];
-
-  // =========================================================================
-  // 2. Director State & Critically-Damped Camera
-  // =========================================================================
-  let wrapEl = null;
-  let canvas = null;
-  let ctx = null;
-  let progressBarEl = null;
-  let playOverlayBtn = null;
-
-  let isPlaying = false;
-  let isFinished = false;
-  let rafId = null;
-  let startPerfTime = 0;
-  let lastFramePerf = 0;
-  let currentT = 0;
-  let currentSceneIndex = -1;
-
-  const triggeredDialogues = new Set();
-  const triggeredSFX = new Set();
-
-  const cam = {
-    x: LOGICAL_W * 0.5,
-    y: LOGICAL_H * 0.5,
-    zoom: 1.0,
-    shake: 0,
-    targetX: LOGICAL_W * 0.5,
-    targetY: LOGICAL_H * 0.5,
-    targetZoom: 1.0,
-    dampingSpeed: 3.5,
-  };
-
-  function setCameraInstant(x, y, zoom) {
-    cam.x = cam.targetX = x;
-    cam.y = cam.targetY = y;
-    cam.zoom = cam.targetZoom = zoom;
+  // ============================================================================
+  // 2. HELPER UTILITIES (Bounded, Zero-Freeze)
+  // ============================================================================
+  function clamp(v, min, max) {
+    return Math.max(min, Math.min(max, v));
   }
 
-  function setCameraTarget(x, y, zoom, speed) {
-    cam.targetX = x;
-    cam.targetY = y;
-    cam.targetZoom = zoom;
-    cam.dampingSpeed = speed != null ? speed : 3.5;
+  function formatMMSS(sec) {
+    const s = Math.max(0, Math.floor(sec));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return (m < 10 ? '0' + m : '' + m) + ':' + (r < 10 ? '0' + r : '' + r);
   }
 
-  function updateCamera(t, dt) {
-    const alpha = 1 - Math.exp(-cam.dampingSpeed * dt);
-    cam.x += (cam.targetX - cam.x) * alpha;
-    cam.y += (cam.targetY - cam.y) * alpha;
-    cam.zoom += (cam.targetZoom - cam.zoom) * alpha;
-
-    // Decay camera impact shake
-    if (cam.shake > 0.01) {
-      cam.shake *= Math.exp(-14 * dt);
-    } else {
-      cam.shake = 0;
+  function getSceneAt(tSec) {
+    const clamped = clamp(tSec, 0, TOTAL_DURATION - 0.001);
+    for (let i = 0; i < SCENES.length; i++) {
+      if (clamped >= SCENES[i].start && clamped < SCENES[i].end) {
+        return SCENES[i];
+      }
     }
+    return SCENES[SCENES.length - 1];
   }
 
-  function applyCameraTransform(ctx, t) {
-    // Subtle organic handheld breathing drift so no frame ever feels static
-    const driftX = Math.sin(t * 1.1) * 3.0;
-    const driftY = Math.cos(t * 0.85) * 2.2;
-    const shakeX = cam.shake > 0 ? (Math.random() * 2 - 1) * cam.shake : 0;
-    const shakeY = cam.shake > 0 ? (Math.random() * 2 - 1) * cam.shake : 0;
-
-    ctx.translate(LOGICAL_W * 0.5 + driftX + shakeX, LOGICAL_H * 0.5 + driftY + shakeY);
-    ctx.scale(cam.zoom, cam.zoom);
-    ctx.translate(-cam.x, -cam.y);
-  }
-
-  // Natural periodic eye blink helper (0 = open, 1 = closed)
-  function computeBlink(t, seedOffset) {
-    const cycle = (t + seedOffset) % 3.8;
-    if (cycle > 3.58) {
-      const p = (cycle - 3.58) / 0.22;
-      return Math.sin(p * Math.PI);
+  // Fallback character silhouette renderer if `window.IntroRig` is missing or partial
+  function drawCharacterSafe(ctx, charType, x, y, scale, pose) {
+    if (window.IntroRig && typeof window.IntroRig.drawCharacter === 'function') {
+      window.IntroRig.drawCharacter(ctx, charType, x, y, scale, pose);
+      return;
     }
-    return 0;
-  }
-
-  // =========================================================================
-  // 3. Scene Renderers (0.0s -> 22.0s)
-  // =========================================================================
-
-  /**
-   * Scene 1 (0.0s – 4.2s): Rooftop Dusk Silhouette & Slow Push-In
-   */
-  function renderScene1(ctx, t) {
-    if (currentSceneIndex !== 1) {
-      currentSceneIndex = 1;
-      setCameraInstant(960, 565, 1.0);
-    }
-    setCameraTarget(935, 525, 1.12, 0.75);
-
-    const mouth = global.IntroAudio ? global.IntroAudio.getMouthOpen(t) : 0;
-
+    // Lightweight vector fallback character
     ctx.save();
-    applyCameraTransform(ctx, t);
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
 
-    if (global.IntroBG) {
-      global.IntroBG.drawRooftopSunset(ctx, t);
-    }
-
-    if (global.IntroRig) {
-      // Minh Quân (coral jacket, rim-lit) holding glowing red apple up against sunset sky
-      const liftWave = Math.sin(t * 1.6) * 6;
-      global.IntroRig.drawCharacter(ctx, {
-        id: 'quan',
-        x: 785,
-        y: 892,
-        facing: 1,
-        lightSide: 'right',
-        expression: 'curious',
-        mouthOpen: mouth * 0.9,
-        mouthStyle: 'talk',
-        blink: computeBlink(t, 0.4),
-        lookX: 0.45,
-        lookY: -0.25,
-        headTilt: Math.sin(t * 1.5) * 0.035,
-        frontArm: {
-          dx: 102,
-          dy: -24 + liftWave,
-          bend: 1,
-          angle: -0.35,
-        },
-      });
-
-      // Soft warm bloom around the apple against the dusk sky
-      const appleX = 930;
-      const appleY = 588 + liftWave;
-      const appleGlow = ctx.createRadialGradient(appleX, appleY, 4, appleX, appleY, 64);
-      appleGlow.addColorStop(0, 'rgba(255, 120, 75, 0.48)');
-      appleGlow.addColorStop(1, 'rgba(255, 120, 75, 0)');
-      ctx.fillStyle = appleGlow;
-      ctx.beginPath();
-      ctx.arc(appleX, appleY, 64, 0, Math.PI * 2);
-      ctx.fill();
-
-      global.IntroRig.drawGlossyApple(ctx, appleX, appleY, 22, Math.sin(t * 1.2) * 0.12);
-
-      // Tuấn Minh (yellow cap, cobalt jacket) standing beside Minh Quân looking at the apple
-      global.IntroRig.drawCharacter(ctx, {
-        id: 'minh',
-        x: 1095,
-        y: 892,
-        facing: -1,
-        lightSide: 'right',
-        expression: 'neutral',
-        mouthOpen: 0,
-        mouthStyle: 'smile',
-        blink: computeBlink(t, 1.9),
-        lookX: -0.55,
-        lookY: -0.18,
-        headTilt: -Math.sin(t * 1.3) * 0.03,
-        pose: 'idle',
-      });
-    }
-
-    ctx.restore();
-  }
-
-  /**
-   * Scene 2 (4.2s – 8.8s): Macro Table Close-Up & Zero-Gravity Anomaly
-   */
-  function renderScene2(ctx, t) {
-    const localT = t - 4.2;
-    if (currentSceneIndex !== 2) {
-      currentSceneIndex = 2;
-      setCameraInstant(960, 560, 1.02);
-    }
-    setCameraTarget(960, 520, 1.10, 0.85);
-
-    const floatProgress = easeOutCubic(clamp(localT / 4.2, 0, 1));
-
-    ctx.save();
-    applyCameraTransform(ctx, t);
-
-    if (global.IntroBG) {
-      global.IntroBG.drawMacroTable(ctx, t);
-    }
-
-    // Contact shadows on walnut tabletop that fade & shrink as mug and apple levitate upward
-    const shadowAlpha = Math.max(0.05, 0.38 * (1 - floatProgress * 0.78));
-    ctx.fillStyle = 'rgba(8, 4, 4, ' + shadowAlpha.toFixed(3) + ')';
+    // Torso
+    ctx.fillStyle = charType === 'quan' ? '#24344d' : '#5e3423';
     ctx.beginPath();
-    ctx.ellipse(650, 775, 68 * (1 - floatProgress * 0.35), 14, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(1035, 785, 52 * (1 - floatProgress * 0.45), 12, 0, 0, Math.PI * 2);
+    ctx.roundRect(-55, -135, 110, 145, 24);
     ctx.fill();
 
-    if (global.IntroRig) {
-      // Ceramic mug tipping & levitating in zero-gravity while coffee droplets float upward
-      const mugX = 650 - floatProgress * 18;
-      const mugY = 695 - floatProgress * 155 + Math.sin(t * 2.2) * 6;
-      const mugRot = -0.25 - floatProgress * 0.58;
-      const spillAmt = clamp(localT / 2.8, 0.12, 1.0);
+    // Head
+    ctx.fillStyle = '#f2c7a5';
+    ctx.beginPath();
+    ctx.arc(0, -185, 42, 0, Math.PI * 2);
+    ctx.fill();
 
-      if (global.IntroBG) {
-        global.IntroBG.drawSteamWisps(ctx, mugX - 18, mugY - 48, t, 4);
-      }
+    // Hair
+    ctx.fillStyle = '#1b1412';
+    ctx.beginPath();
+    ctx.arc(0, -198, 43, Math.PI, Math.PI * 2);
+    ctx.fill();
 
-      global.IntroRig.drawCeramicMug(ctx, mugX, mugY, mugRot, spillAmt);
+    // Eyes
+    const lx = (pose && pose.eyeLookX) || 0;
+    const ly = (pose && pose.eyeLookY) || 0;
+    ctx.fillStyle = '#181412';
+    ctx.beginPath();
+    ctx.arc(-14 + lx * 5, -188 + ly * 3, 4.5, 0, Math.PI * 2);
+    ctx.arc(14 + lx * 5, -188 + ly * 3, 4.5, 0, Math.PI * 2);
+    ctx.fill();
 
-      // Minh Quân's macro close-up hand on the left reaching slightly as apple floats away
-      const handX = 335 + floatProgress * 22;
-      const handY = 720 - floatProgress * 38 + Math.sin(t * 1.8) * 4;
-      const handCurl = lerp(0.55, 0.16, easeOutCubic(clamp(localT / 1.8, 0, 1)));
-      global.IntroRig.drawCloseUpArmHand(
-        ctx,
-        handX,
-        handY,
-        -0.08 - floatProgress * 0.08,
-        '#E85A34',
-        handCurl
-      );
-
-      // Glossy red apple floating upward in slow motion
-      const appleX = 1035 + Math.sin(t * 1.5) * 8;
-      const appleY = 695 - floatProgress * 245 + Math.cos(t * 1.9) * 6;
-      const appleRot = localT * 0.28;
-
-      global.IntroRig.drawGlossyApple(ctx, appleX, appleY, 48, appleRot);
-
-      // Circular radar & telemetry HUD tracking the floating apple
-      global.IntroRig.drawTelemetryGauge(
-        ctx,
-        appleX,
-        appleY,
-        'GIA TỐC TRỌNG TRƯỜNG',
-        'g = 0.00 m/s²',
-        0.02,
-        '#00E5FF'
-      );
-    }
+    // Lip-sync mouth
+    const mo = clamp((pose && pose.mouthOpen) || 0, 0, 1);
+    ctx.fillStyle = '#7a2824';
+    ctx.beginPath();
+    ctx.ellipse(0, -166, 8 + mo * 5, 2 + mo * 9, 0, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.restore();
   }
 
-  /**
-   * Scene 3 (8.8s – 12.5s): Extreme Face Close-Up Reaction (Tuấn Minh)
-   */
-  function renderScene3(ctx, t) {
-    const localT = t - 8.8;
-    if (currentSceneIndex !== 3) {
-      currentSceneIndex = 3;
-      setCameraInstant(960, 540, 1.06);
-    }
-    setCameraTarget(960, 525, 1.14, 1.2);
-
-    const mouth = global.IntroAudio ? global.IntroAudio.getMouthOpen(t) : 0;
-
+  // ============================================================================
+  // 3. MODULAR SCIENCE HOLOGRAM RENDERER (All 13 Visual Holograms)
+  // ============================================================================
+  function drawScienceHologram(ctx, type, lt, t) {
+    if (!type) return;
     ctx.save();
-    applyCameraTransform(ctx, t);
 
-    // Heavy golden window bokeh backdrop
-    if (global.IntroBG) {
-      global.IntroBG.drawDuskSkyline(ctx, t, 18);
-    }
+    // Smooth hologram fade-in
+    const fadeIn = clamp(lt * 1.8, 0, 1);
+    ctx.globalAlpha = fadeIn;
 
-    // Blurred cafe window frame bars behind Tuấn Minh
-    ctx.save();
-    ctx.filter = 'blur(12px)';
-    ctx.fillStyle = 'rgba(18, 13, 18, 0.72)';
-    ctx.fillRect(0, 0, LOGICAL_W, 95);
-    ctx.fillRect(460, 0, 38, LOGICAL_H);
-    ctx.fillRect(1420, 0, 38, LOGICAL_H);
-    ctx.restore();
+    switch (type) {
+      // ------------------------------------------------------------------------
+      // SCENE 1: Crescent Moon vs. Glowing Red Apple
+      // ------------------------------------------------------------------------
+      case 'moon_apple': {
+        // Crescent Moon in top-right dusk sky
+        const moonX = 1420;
+        const moonY = 230;
+        const halo = ctx.createRadialGradient(moonX, moonY, 20, moonX, moonY, 170);
+        halo.addColorStop(0, 'rgba(255, 248, 210, 0.85)');
+        halo.addColorStop(0.45, 'rgba(130, 210, 255, 0.25)');
+        halo.addColorStop(1, 'rgba(130, 210, 255, 0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(moonX, moonY, 170, 0, Math.PI * 2);
+        ctx.fill();
 
-    // Extreme close-up (scale: 2.6) on Tuấn Minh's shocked face
-    if (global.IntroRig) {
-      const bobY = Math.sin(t * 9.5) * (mouth * 7) + Math.sin(t * 2.1) * 4;
-      const shockPop = easeOutBack(clamp(localT / 0.35, 0, 1));
+        ctx.fillStyle = '#fff9e6';
+        ctx.beginPath();
+        ctx.arc(moonX, moonY, 54, 0, Math.PI * 2);
+        ctx.fill();
 
-      global.IntroRig.drawCharacter(ctx, {
-        id: 'minh',
-        x: 960,
-        y: 1385 + bobY,
-        scale: 2.6 * (0.94 + 0.06 * shockPop),
-        facing: -1,
-        lightSide: 'left',
-        expression: 'shocked',
-        mouthOpen: Math.max(0.28, mouth),
-        mouthStyle: mouth > 0.18 ? 'talk' : 'shock',
-        blink: computeBlink(t, 0.9) * 0.2, // Wide-eyed in disbelief
-        lookX: -0.35 + Math.sin(t * 3.2) * 0.18,
-        lookY: -0.22 + Math.cos(t * 2.7) * 0.12,
-        headTilt: Math.sin(t * 2.8) * 0.04,
-        pose: 'shocked',
-      });
-    }
+        // Dotted gravity question vector connecting Moon & Apple
+        const appleX = 760;
+        const appleY = 530 - Math.sin(t * 2.4) * 10;
+        ctx.strokeStyle = 'rgba(255, 215, 130, 0.55)';
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([8, 8]);
+        ctx.beginPath();
+        ctx.moveTo(appleX, appleY);
+        ctx.lineTo(moonX - 50, moonY + 40);
+        ctx.stroke();
+        ctx.setLineDash([]);
 
-    ctx.restore();
-  }
+        // Glowing Red Apple held up by Minh Quân
+        const appleGlow = ctx.createRadialGradient(appleX, appleY, 4, appleX, appleY, 58);
+        appleGlow.addColorStop(0, 'rgba(255, 90, 70, 0.95)');
+        appleGlow.addColorStop(0.5, 'rgba(255, 70, 40, 0.35)');
+        appleGlow.addColorStop(1, 'rgba(255, 70, 40, 0)');
+        ctx.fillStyle = appleGlow;
+        ctx.beginPath();
+        ctx.arc(appleX, appleY, 58, 0, Math.PI * 2);
+        ctx.fill();
 
-  /**
-   * Scene 4 (12.5s – 17.5s): Cafe Window Two-Shot & Finger Snap
-   */
-  function renderScene4(ctx, t) {
-    const snapTime = 14.3;
-    const hitTableTime = 14.78;
+        ctx.fillStyle = '#ff3b2f';
+        ctx.beginPath();
+        ctx.arc(appleX, appleY, 22, 0, Math.PI * 2);
+        ctx.fill();
 
-    if (currentSceneIndex !== 4) {
-      currentSceneIndex = 4;
-      setCameraInstant(800, 565, 1.02);
-    }
-
-    if (t < snapTime) {
-      setCameraTarget(800, 555, 1.07, 0.9);
-    } else {
-      setCameraTarget(800, 585, 1.14, 2.2);
-    }
-
-    // Trigger micro camera shake when the apple slams onto the table
-    if (t >= hitTableTime && t < hitTableTime + 0.04 && cam.shake < 4) {
-      cam.shake = 11.5;
-    }
-
-    const mouth = global.IntroAudio ? global.IntroAudio.getMouthOpen(t) : 0;
-
-    ctx.save();
-    applyCameraTransform(ctx, t);
-
-    if (global.IntroBG) {
-      global.IntroBG.drawCafeInterior(ctx, t, 2);
-    }
-
-    // Compute Minh Quân's arm gesture (raises hand -> snaps at 14.3s)
-    const preSnapRaise = clamp((t - 13.4) / 0.85, 0, 1);
-    const isAfterSnap = t >= snapTime;
-    const snapHandDX = lerp(84, 72, easeOutCubic(preSnapRaise));
-    const snapHandDY = lerp(24, -34, easeOutCubic(preSnapRaise)) + (isAfterSnap ? 12 : 0);
-
-    if (global.IntroRig) {
-      // Minh Quân seated on left chair
-      global.IntroRig.drawCharacter(ctx, {
-        id: 'quan',
-        x: 515,
-        y: 815,
-        seated: true,
-        facing: 1,
-        lightSide: 'right',
-        expression: isAfterSnap ? 'confident' : 'curious',
-        mouthOpen: mouth,
-        mouthStyle: mouth > 0.05 ? 'talk' : 'smile',
-        blink: computeBlink(t, 1.1),
-        lookX: 0.42,
-        lookY: isAfterSnap ? 0.15 : -0.2,
-        headTilt: isAfterSnap ? 0.04 : 0,
-        frontArm: {
-          dx: snapHandDX,
-          dy: snapHandDY,
-          bend: 1,
-          angle: isAfterSnap ? -0.45 : -0.95,
-        },
-      });
-
-      // Tuấn Minh seated on right chair watching the apple drop
-      global.IntroRig.drawCharacter(ctx, {
-        id: 'minh',
-        x: 1085,
-        y: 815,
-        seated: true,
-        facing: -1,
-        lightSide: 'left',
-        expression: isAfterSnap ? 'curious' : 'shocked',
-        mouthOpen: 0,
-        mouthStyle: isAfterSnap ? 'smile' : 'shock',
-        blink: computeBlink(t, 2.4),
-        lookX: -0.48,
-        lookY: isAfterSnap ? 0.25 : -0.25,
-        headTilt: isAfterSnap ? -0.02 : 0.05,
-        pose: isAfterSnap ? 'restOnTable' : 'shocked',
-      });
-
-      // White ceramic mug on left side of center table
-      global.IntroRig.drawCeramicMug(ctx, 720, 742, 0, 0);
-      if (global.IntroBG) {
-        global.IntroBG.drawSteamWisps(ctx, 720, 682, t, 3);
+        // Floating question callout
+        ctx.fillStyle = '#fff5d6';
+        ctx.font = '600 24px system-ui, -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Tại sao Táo rơi nhưng Mặt Trăng không rơi?', (appleX + moonX) * 0.5, 340);
+        break;
       }
 
-      // Apple vertical physics:
-      // Before 14.3s: hovers at y = 540
-      // After 14.3s: accelerates under gravity onto table surface (y = 748) with a crisp bounce
-      const hoverY = 540 + Math.sin(t * 2.4) * 7;
-      const tableSurfaceY = 748;
-      let appleY = hoverY;
-      let appleRot = Math.sin(t * 1.5) * 0.18;
+      // ------------------------------------------------------------------------
+      // SCENE 2: Ancient Natural Philosophy (Pythagoras Triangle & Scroll)
+      // ------------------------------------------------------------------------
+      case 'ancient_philosophy': {
+        const cx = W * 0.5;
+        const cy = 410 + Math.sin(t * 2) * 8;
 
-      if (t >= snapTime) {
-        const fallDur = hitTableTime - snapTime; // 0.48s free-fall
-        if (t < hitTableTime) {
-          const p = (t - snapTime) / fallDur;
-          appleY = lerp(hoverY, tableSurfaceY, p * p); // Quadratic g acceleration
-          appleRot = p * 0.45;
-        } else if (t < hitTableTime + 0.26) {
-          // Damped elastic bounce on the wood tabletop
-          const bp = (t - hitTableTime) / 0.26;
-          appleY = tableSurfaceY - Math.sin(bp * Math.PI) * 32;
-          appleRot = 0.45 - bp * 0.35;
-        } else {
-          appleY = tableSurfaceY;
-          appleRot = 0.08;
+        // Ambient golden hologram aura
+        const aura = ctx.createRadialGradient(cx, cy, 15, cx, cy, 240);
+        aura.addColorStop(0, 'rgba(255, 200, 95, 0.38)');
+        aura.addColorStop(1, 'rgba(255, 170, 60, 0)');
+        ctx.fillStyle = aura;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 240, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Glowing Pythagorean Right Triangle
+        ctx.strokeStyle = '#ffd166';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(cx - 130, cy + 70);
+        ctx.lineTo(cx + 30, cy + 70);
+        ctx.lineTo(cx - 130, cy - 70);
+        ctx.closePath();
+        ctx.stroke();
+
+        // Right-angle marker
+        ctx.strokeRect(cx - 130, cy + 48, 22, 22);
+
+        // Aristotle deductive balance scale (heavier vs lighter myth)
+        ctx.strokeStyle = 'rgba(255, 225, 150, 0.9)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(cx + 75, cy - 30);
+        ctx.lineTo(cx + 215, cy + 25);
+        ctx.stroke();
+
+        ctx.fillStyle = '#ff9f43';
+        ctx.beginPath();
+        ctx.arc(cx + 215, cy + 48, 24, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffeaa7';
+        ctx.beginPath();
+        ctx.arc(cx + 75, cy - 12, 11, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#ffd166';
+        ctx.font = '700 22px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('a² + b² = c²  •  TRIẾT HỌC TỰ NHIÊN CỔ ĐẠI (Chưa có thực nghiệm)', cx, cy + 135);
+        break;
+      }
+
+      // ------------------------------------------------------------------------
+      // SCENE 3: Galileo Vacuum Drop (Iron Sphere & Feather in Exact Sync)
+      // ------------------------------------------------------------------------
+      case 'galileo_vacuum': {
+        const tubeX = W * 0.5 - 120;
+        const tubeY = 170;
+        const tubeW = 240;
+        const tubeH = 470;
+
+        // Glass Vacuum Cylinder
+        ctx.fillStyle = 'rgba(130, 220, 255, 0.10)';
+        ctx.strokeStyle = 'rgba(150, 235, 255, 0.75)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.roundRect(tubeX, tubeY, tubeW, tubeH, 24);
+        ctx.fill();
+        ctx.stroke();
+
+        // Synchronized Free-Fall Kinematics (g = 9.80 m/s²)
+        const cycle = (lt % 3.2) / 3.2;
+        const dropProgress = clamp(cycle * cycle * 1.35, 0, 1);
+        const objY = tubeY + 65 + dropProgress * (tubeH - 125);
+
+        // Horizontal laser sync line proving identical acceleration
+        ctx.strokeStyle = 'rgba(50, 255, 180, 0.75)';
+        ctx.setLineDash([6, 6]);
+        ctx.beginPath();
+        ctx.moveTo(tubeX + 20, objY);
+        ctx.lineTo(tubeX + tubeW - 20, objY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Heavy Iron Sphere (Left)
+        ctx.fillStyle = '#8c9ba5';
+        ctx.beginPath();
+        ctx.arc(tubeX + 75, objY, 22, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 14px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Fe 5kg', tubeX + 75, objY + 5);
+
+        // Delicate White Feather (Right - falling at exact same Y!)
+        ctx.save();
+        ctx.translate(tubeX + 168, objY);
+        ctx.strokeStyle = '#ffffff';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 22, 7, -0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Telemetry Gauge (using IntroRig if available, plus crisp HUD readout)
+        if (window.IntroRig && typeof window.IntroRig.drawTelemetryGauge === 'function') {
+          window.IntroRig.drawTelemetryGauge(ctx, tubeX + tubeW + 130, tubeY + 140, 9.8, 'g = 9.80 m/s²');
         }
+        ctx.fillStyle = '#64ffda';
+        ctx.font = '700 22px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('CHÂN KHÔNG: 0.00 ATM', tubeX + tubeW + 40, tubeY + 260);
+        ctx.fillText('g = 9.80 m/s² (ĐỒNG BỘ 100%)', tubeX + tubeW + 40, tubeY + 298);
+        break;
       }
 
-      const appleX = 835;
-      global.IntroRig.drawGlossyApple(ctx, appleX, appleY, 24, appleRot);
+      // ------------------------------------------------------------------------
+      // SCENE 4: Newton Universal Gravitation Orbit (F = G*m1*m2/r²)
+      // ------------------------------------------------------------------------
+      case 'newton_orbit': {
+        const cx = W * 0.5;
+        const cy = 400;
 
-      // Crisp white finger-snap shockwave ring at t = 14.3s
-      if (t >= snapTime && t < snapTime + 0.65) {
-        const sp = (t - snapTime) / 0.65;
-        const snapOriginX = 622;
-        const snapOriginY = 528;
-        const ringR = 14 + easeOutCubic(sp) * 280;
+        // Sun core
+        const sunG = ctx.createRadialGradient(cx, cy, 6, cx, cy, 110);
+        sunG.addColorStop(0, '#fff7c2');
+        sunG.addColorStop(0.35, '#ffae34');
+        sunG.addColorStop(1, 'rgba(255, 140, 30, 0)');
+        ctx.fillStyle = sunG;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 110, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Elliptical planetary orbits (3 rings)
+        for (let i = 1; i <= 3; i++) {
+          const rx = i * 95;
+          const ry = i * 42;
+          ctx.strokeStyle = 'rgba(255, 215, 120, 0.42)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, rx, ry, -0.12, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // Orbiting planet
+          const angle = t * (1.8 / i) + i * 2.1;
+          const px = cx + Math.cos(angle) * rx;
+          const py = cy + Math.sin(angle) * ry;
+          ctx.fillStyle = i === 2 ? '#4ea8de' : '#ffd166';
+          ctx.beginPath();
+          ctx.arc(px, py, 7 + i * 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.fillStyle = '#ffe6a7';
+        ctx.font = '700 26px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('ĐỊNH LUẬT VẠN VẬT HẤP DẪN:  F = G · (m₁ · m₂) / r²', cx, cy + 185);
+        break;
+      }
+
+      // ------------------------------------------------------------------------
+      // SCENE 5: James Watt Steam Engine Piston & Flywheel (1765)
+      // ------------------------------------------------------------------------
+      case 'steam_engine': {
+        const cx = W * 0.5;
+        const cy = 360;
+        const theta = t * 5.2;
+
+        // Glowing technical blueprint frame
+        ctx.fillStyle = 'rgba(255, 165, 75, 0.12)';
+        ctx.strokeStyle = '#ff9f43';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.roundRect(cx - 290, cy - 130, 580, 260, 18);
+        ctx.fill();
+        ctx.stroke();
+
+        // Steam cylinder on left
+        const cylX = cx - 230;
+        const cylY = cy - 45;
+        ctx.strokeRect(cylX, cylY, 160, 90);
+
+        // Moving piston head
+        const pistonX = cylX + 55 + Math.cos(theta) * 42;
+        ctx.fillStyle = '#ffd166';
+        ctx.fillRect(pistonX, cylY + 6, 22, 78);
+
+        // Flywheel on right
+        const wheelX = cx + 145;
+        const wheelY = cy;
+        ctx.strokeStyle = '#ffd166';
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.arc(wheelX, wheelY, 76, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Crank pin & connecting rod
+        const crankX = wheelX + Math.cos(theta) * 52;
+        const crankY = wheelY + Math.sin(theta) * 52;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(pistonX + 22, cy);
+        ctx.lineTo(crankX, crankY);
+        ctx.lineTo(wheelX, wheelY);
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffd166';
+        ctx.font = '700 22px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('MÁY HƠI NƯỚC JAMES WATT (1765) • Q = ΔU + A', cx, cy + 105);
+        break;
+      }
+
+      // ------------------------------------------------------------------------
+      // SCENE 6: Voltaic Pile (1800) & Ørsted Magnetic Compass Deflection
+      // ------------------------------------------------------------------------
+      case 'volta_orsted': {
+        const cx = W * 0.5;
+        const cy = 395;
+
+        // Voltaic Pile (Cu / Zn stacked discs on left)
+        const pileX = cx - 180;
+        for (let i = 0; i < 6; i++) {
+          const dy = cy + 60 - i * 22;
+          ctx.fillStyle = i % 2 === 0 ? '#e07a5f' : '#8ecae6';
+          ctx.fillRect(pileX - 45, dy, 90, 16);
+        }
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 18px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('PIN VOLTA (Cu-Zn)', pileX, cy + 105);
+
+        // Electric current wire with animated blue sparks
+        ctx.strokeStyle = '#00f5d4';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(pileX, cy - 70);
+        ctx.lineTo(cx + 160, cy - 70);
+        ctx.lineTo(cx + 160, cy + 60);
+        ctx.lineTo(pileX, cy + 60);
+        ctx.stroke();
+
+        // Animated electron pulse along top wire
+        const pulseX = pileX + ((t * 240) % 340);
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(pulseX, cy - 70, 7, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ørsted Compass on right with deflecting needle
+        const compX = cx + 160;
+        const compY = cy - 5;
+        ctx.strokeStyle = '#ffd166';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(compX, compY, 56, 0, Math.PI * 2);
+        ctx.stroke();
+
+        const deflectAngle = 0.65 * Math.sin(t * 3.5);
+        ctx.save();
+        ctx.translate(compX, compY);
+        ctx.rotate(deflectAngle);
+        ctx.fillStyle = '#ff4d4d';
+        ctx.beginPath();
+        ctx.moveTo(0, -44);
+        ctx.lineTo(9, 0);
+        ctx.lineTo(-9, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#e0fbfc';
+        ctx.beginPath();
+        ctx.moveTo(0, 44);
+        ctx.lineTo(9, 0);
+        ctx.lineTo(-9, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+
+        ctx.fillStyle = '#00f5d4';
+        ctx.fillText('THÍ NGHIỆM ØRSTED (1820)', compX, cy + 105);
+        break;
+      }
+
+      // ------------------------------------------------------------------------
+      // SCENE 7: Faraday Copper Disk Dynamo (1831) & Maxwell Rainbow EM Wave
+      // ------------------------------------------------------------------------
+      case 'faraday_maxwell': {
+        const cx = W * 0.5;
+        const cy = 370;
+
+        // Spinning Copper Faraday Disk on Left
+        const diskX = cx - 220;
+        ctx.save();
+        ctx.translate(diskX, cy);
+        ctx.rotate(t * 4.5);
+        const copperG = ctx.createRadialGradient(0, 0, 10, 0, 0, 82);
+        copperG.addColorStop(0, '#ffd166');
+        copperG.addColorStop(0.7, '#d97736');
+        copperG.addColorStop(1, '#7c3f18');
+        ctx.fillStyle = copperG;
+        ctx.beginPath();
+        ctx.arc(0, 0, 82, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Radial spokes
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.lineWidth = 3;
+        for (let i = 0; i < 6; i++) {
+          const a = (i * Math.PI) / 3;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(Math.cos(a) * 80, Math.sin(a) * 80);
+          ctx.stroke();
+        }
+        ctx.restore();
+
+        // Horseshoe magnet poles around disk
+        ctx.strokeStyle = '#ff4d4d';
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.arc(diskX, cy - 10, 96, -0.8, 0.8);
+        ctx.stroke();
+
+        // Maxwell Electromagnetic Wave (Rainbow Sine Wave, bounded 45 segments)
+        const waveStartX = cx - 80;
+        for (let i = 0; i < 45; i++) {
+          const wx1 = waveStartX + i * 8.5;
+          const wx2 = wx1 + 8.5;
+          const wy1 = cy + Math.sin(i * 0.32 - t * 8) * 58;
+          const wy2 = cy + Math.sin((i + 1) * 0.32 - t * 8) * 58;
+          const hue = (i * 8 + t * 120) % 360;
+          ctx.strokeStyle = `hsl(${hue}, 92%, 62%)`;
+          ctx.lineWidth = 5;
+          ctx.beginPath();
+          ctx.moveTo(wx1, wy1);
+          ctx.lineTo(wx2, wy2);
+          ctx.stroke();
+        }
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 24px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('FARADAY (1831) & SÓNG ĐIỆN TỪ MAXWELL  •  c = 3×10⁸ m/s', cx, cy + 135);
+        break;
+      }
+
+      // ------------------------------------------------------------------------
+      // SCENE 8: Ultraviolet Catastrophe (Classical Curve Shooting to Infinity)
+      // ------------------------------------------------------------------------
+      case 'uv_catastrophe': {
+        const gx = W * 0.5 - 260;
+        const gy = 485;
+        const gw = 520;
+        const gh = 260;
+
+        // Axes
+        ctx.strokeStyle = '#a0b4d6';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(gx, gy - gh);
+        ctx.lineTo(gx, gy);
+        ctx.lineTo(gx + gw, gy);
+        ctx.stroke();
+
+        // Experimental Planck Blackbody Curve (Safe Emerald Curve)
+        ctx.strokeStyle = '#00f5d4';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        for (let i = 0; i <= 40; i++) {
+          const u = i / 40;
+          const px = gx + u * gw;
+          const py = gy - Math.sin(u * Math.PI) * Math.pow(1 - u * 0.5, 1.5) * 195;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+
+        // Classical Rayleigh-Jeans Curve shooting infinitely upward into Crimson Alert
+        ctx.strokeStyle = '#ff2a55';
+        ctx.lineWidth = 5;
+        ctx.setLineDash([8, 6]);
+        ctx.beginPath();
+        for (let i = 0; i <= 30; i++) {
+          const u = i / 30;
+          const px = gx + gw * (0.28 + u * 0.55);
+          const py = gy - Math.pow(u, 2.3) * 320;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Warning badge
+        ctx.fillStyle = '#ff2a55';
+        ctx.font = '800 26px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('⚠ TAI BIẾN CỰC TÍM (VẬT LÍ CỔ ĐIỂN → ∞)', W * 0.5, gy - gh - 25);
+        break;
+      }
+
+      // ------------------------------------------------------------------------
+      // SCENE 9: Max Planck Quantum Packets (E = h*f, 1900)
+      // ------------------------------------------------------------------------
+      case 'planck_quanta': {
+        const cx = W * 0.5;
+        const cy = 370;
+
+        // 16 Discrete glowing emerald quantum energy packets (photons)
+        for (let i = 0; i < 16; i++) {
+          const offset = (i * 42 + t * 130) % 640;
+          const px = cx - 320 + offset;
+          const py = cy + Math.sin(offset * 0.025 - t * 4) * 48;
+
+          const qGlow = ctx.createRadialGradient(px, py, 2, px, py, 28);
+          qGlow.addColorStop(0, '#ffffff');
+          qGlow.addColorStop(0.4, '#00f5d4');
+          qGlow.addColorStop(1, 'rgba(0, 245, 212, 0)');
+          ctx.fillStyle = qGlow;
+          ctx.beginPath();
+          ctx.arc(px, py, 28, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.fillStyle = '#00f5d4';
+        ctx.font = '800 32px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('THUYẾT LƯỢNG TỬ MAX PLANCK (1900)  •  E = h · f', cx, cy + 135);
+        break;
+      }
+
+      // ------------------------------------------------------------------------
+      // SCENE 10: Albert Einstein Spacetime Curvature & Time Dilation (E = mc²)
+      // ------------------------------------------------------------------------
+      case 'einstein_spacetime': {
+        const cx = W * 0.5;
+        const cy = 415;
+
+        // Warped 3D Spacetime Grid (bounded 11 lines)
+        ctx.strokeStyle = 'rgba(100, 220, 255, 0.55)';
+        ctx.lineWidth = 2;
+        for (let i = -5; i <= 5; i++) {
+          const yBase = cy + i * 24;
+          const wellDepth = Math.exp(-(i * i) * 0.18) * 65;
+          ctx.beginPath();
+          ctx.moveTo(cx - 280, yBase);
+          ctx.quadraticCurveTo(cx, yBase + wellDepth, cx + 280, yBase);
+          ctx.stroke();
+        }
+
+        // Massive glowing star bending spacetime
+        const massG = ctx.createRadialGradient(cx, cy - 10, 5, cx, cy - 10, 62);
+        massG.addColorStop(0, '#ffffff');
+        massG.addColorStop(0.45, '#ffd166');
+        massG.addColorStop(1, 'rgba(255, 160, 0, 0)');
+        ctx.fillStyle = massG;
+        ctx.beginPath();
+        ctx.arc(cx, cy - 10, 62, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Relativistic Time-Dilation Clock on Right
+        const clkX = cx + 250;
+        const clkY = cy - 75;
+        ctx.strokeStyle = '#ffd166';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(clkX, clkY, 44, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(clkX, clkY);
+        ctx.lineTo(clkX + Math.cos(t * 0.9) * 32, clkY + Math.sin(t * 0.9) * 32);
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '800 34px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('ALBERT EINSTEIN  •  E = mc²', cx, cy - 125);
+        break;
+      }
+
+      // ------------------------------------------------------------------------
+      // SCENE 11: Peaceful Atomic Nucleus & Humanitarian Responsibility
+      // ------------------------------------------------------------------------
+      case 'nuclear_peace': {
+        const cx = W * 0.68;
+        const cy = 410;
+
+        // 3 Electron Orbitals rotating smoothly into golden peace rays
+        for (let i = 0; i < 3; i++) {
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.rotate((i * Math.PI) / 3 + t * 0.6);
+          ctx.strokeStyle = 'rgba(255, 220, 130, 0.75)';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, 125, 42, 0, 0, Math.PI * 2);
+          ctx.stroke();
+
+          const eAngle = t * 3.2 + i * 2;
+          const ex = Math.cos(eAngle) * 125;
+          const ey = Math.sin(eAngle) * 42;
+          ctx.fillStyle = '#64ffda';
+          ctx.beginPath();
+          ctx.arc(ex, ey, 7, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        // Glowing Golden Nucleus Core
+        const coreG = ctx.createRadialGradient(cx, cy, 4, cx, cy, 48);
+        coreG.addColorStop(0, '#ffffff');
+        coreG.addColorStop(0.5, '#ffd166');
+        coreG.addColorStop(1, 'rgba(255, 209, 102, 0)');
+        ctx.fillStyle = coreG;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 48, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+
+      // ------------------------------------------------------------------------
+      // SCENE 12: Three Pillars of Modern Physics (Nano/Quark, Laser, Galaxy)
+      // ------------------------------------------------------------------------
+      case 'modern_pillars': {
+        const cy = 370;
+
+        // 1. Left Pillar: Quark / Nano Lattice
+        const p1X = W * 0.5 - 270;
+        ctx.strokeStyle = '#00f5d4';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(p1X, cy, 56, 0, Math.PI * 2);
+        ctx.stroke();
+        for (let i = 0; i < 3; i++) {
+          const a = t * 3 + (i * Math.PI * 2) / 3;
+          ctx.fillStyle = '#00f5d4';
+          ctx.beginPath();
+          ctx.arc(p1X + Math.cos(a) * 26, cy + Math.sin(a) * 26, 9, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 18px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('HẠT CƠ BẢN & NANO', p1X, cy + 92);
+
+        // 2. Center Pillar: Coherent Laser & Semiconductor
+        const p2X = W * 0.5;
+        ctx.strokeStyle = '#ff2a55';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(p2X - 65, cy);
+        ctx.lineTo(p2X + 65, cy);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(255, 42, 85, 0.45)';
+        ctx.lineWidth = 14;
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('LASER & BÁN DẪN', p2X, cy + 92);
+
+        // 3. Right Pillar: Spiral Galaxy Cosmology
+        const p3X = W * 0.5 + 270;
+        for (let i = 0; i < 24; i++) {
+          const r = i * 2.4;
+          const a = i * 0.45 - t * 2.5;
+          ctx.fillStyle = i % 2 === 0 ? '#ffd166' : '#a9def9';
+          ctx.beginPath();
+          ctx.arc(p3X + Math.cos(a) * r, cy + Math.sin(a) * r * 0.65, 3.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('VŨ TRỤ HỌC', p3X, cy + 92);
+        break;
+      }
+
+      // ------------------------------------------------------------------------
+      // SCENE 13: Spiral Galaxy Zoom & Finger Snap Shockwave at lt = 5.5s
+      // ------------------------------------------------------------------------
+      case 'galaxy_snap': {
+        const cx = W * 0.5;
+        const cy = H * 0.44;
+        const zoom = 1 + clamp(lt / 8.5, 0, 1) * 1.65;
 
         ctx.save();
-        ctx.strokeStyle = 'rgba(255, 255, 255, ' + (1 - sp).toFixed(3) + ')';
-        ctx.lineWidth = 4.5 * (1 - sp);
-        ctx.beginPath();
-        ctx.arc(snapOriginX, snapOriginY, ringR, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.translate(cx, cy);
+        ctx.scale(zoom, zoom);
 
-        // Inner warm accent shockwave
-        ctx.strokeStyle = 'rgba(255, 130, 80, ' + ((1 - sp) * 0.75).toFixed(3) + ')';
-        ctx.lineWidth = 2.2;
-        ctx.beginPath();
-        ctx.arc(snapOriginX, snapOriginY, ringR * 0.68, 0, Math.PI * 2);
-        ctx.stroke();
+        // Spiral Galaxy Stars (bounded 55 stars)
+        for (let i = 0; i < 55; i++) {
+          const arm = i % 2;
+          const dist = 12 + i * 4.5;
+          const angle = i * 0.28 - t * 1.8 + arm * Math.PI;
+          const sx = Math.cos(angle) * dist;
+          const sy = Math.sin(angle) * dist * 0.58;
+          ctx.fillStyle = i % 3 === 0 ? '#ffd166' : '#90e0ef';
+          ctx.beginPath();
+          ctx.arc(sx, sy, 2.2 + (i % 3), 0, Math.PI * 2);
+          ctx.fill();
+        }
         ctx.restore();
-      }
 
-      // Live Telemetry Gauge snapping from 0.00 m/s² to 9.80 m/s²
-      const gaugeProgress = isAfterSnap
-        ? easeOutBack(clamp((t - snapTime) / 0.42, 0, 1))
-        : 0.02;
-      const gVal = isAfterSnap
-        ? (9.8 * clamp((t - snapTime) / 0.32, 0, 1)).toFixed(2)
-        : '0.00';
-
-      global.IntroRig.drawTelemetryGauge(
-        ctx,
-        appleX,
-        appleY,
-        isAfterSnap ? 'KHÔI PHỤC VẬT LÍ' : 'GIA TỐC TRỌNG TRƯỜNG',
-        'g = ' + gVal + ' m/s²',
-        gaugeProgress,
-        isAfterSnap ? '#FF4D2A' : '#00E5FF'
-      );
-    }
-
-    ctx.restore();
-  }
-
-  /**
-   * Scene 5 (17.5s – 19.5s): Macro Gauge Snap Close-Up
-   */
-  function renderScene5(ctx, t) {
-    const localT = t - 17.5;
-    if (currentSceneIndex !== 5) {
-      currentSceneIndex = 5;
-      setCameraInstant(980, 620, 1.08);
-    }
-    setCameraTarget(1010, 605, 1.18, 1.8);
-
-    ctx.save();
-    applyCameraTransform(ctx, t);
-
-    if (global.IntroBG) {
-      global.IntroBG.drawMacroTable(ctx, t);
-    }
-
-    // Grounded contact shadows on dark walnut tabletop
-    ctx.fillStyle = 'rgba(8, 4, 4, 0.48)';
-    ctx.beginPath();
-    ctx.ellipse(620, 772, 68, 15, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(980, 778, 56, 14, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    if (global.IntroRig) {
-      // Upright ceramic mug steaming calmly on left
-      global.IntroRig.drawCeramicMug(ctx, 620, 710, 0, 0);
-      if (global.IntroBG) {
-        global.IntroBG.drawSteamWisps(ctx, 620, 642, t, 4);
-      }
-
-      // Glossy red apple resting firmly on the table
-      const appleX = 980;
-      const appleY = 732;
-      global.IntroRig.drawGlossyApple(ctx, appleX, appleY, 50, 0.06);
-
-      // Telemetry gauge locking onto 9.80 m/s²
-      const lockProg = easeOutBack(clamp(localT / 0.45, 0, 1));
-      global.IntroRig.drawTelemetryGauge(
-        ctx,
-        appleX,
-        appleY,
-        'TRỌNG LỰC TIÊU CHUẨN • TRÁI ĐẤT',
-        'g = 9.80 m/s² [LOCKED]',
-        0.92 * lockProg,
-        '#FF4D2A'
-      );
-    }
-
-    ctx.restore();
-  }
-
-  /**
-   * Scene 6 (19.5s – 22.0s): Editorial Title Card & Auto-Handoff
-   */
-  function renderScene6(ctx, t) {
-    const localT = t - 19.5;
-    if (currentSceneIndex !== 6) {
-      currentSceneIndex = 6;
-      setCameraInstant(960, 540, 1.0);
-    }
-
-    // Blurred atmospheric dusk backdrop
-    if (global.IntroBG) {
-      global.IntroBG.drawDuskSkyline(ctx, t, 14);
-    }
-
-    // Rich dark radial vignette overlay
-    const bgGrad = ctx.createRadialGradient(
-      LOGICAL_W * 0.5,
-      LOGICAL_H * 0.5,
-      120,
-      LOGICAL_W * 0.5,
-      LOGICAL_H * 0.5,
-      1050
-    );
-    bgGrad.addColorStop(0, 'rgba(12, 11, 18, 0.68)');
-    bgGrad.addColorStop(1, 'rgba(6, 6, 10, 0.92)');
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
-
-    // Spring-physics card entrance
-    const cardSpring = easeOutBack(clamp(localT / 0.58, 0, 1));
-    const subFade = easeOutCubic(clamp((localT - 0.22) / 0.5, 0, 1));
-    const teamFade = easeOutCubic(clamp((localT - 0.42) / 0.5, 0, 1));
-
-    ctx.save();
-    ctx.translate(LOGICAL_W * 0.5, LOGICAL_H * 0.5);
-    ctx.scale(0.86 + 0.14 * cardSpring, 0.86 + 0.14 * cardSpring);
-
-    const cardW = 1340;
-    const cardH = 520;
-
-    // Dark-glass editorial card
-    ctx.fillStyle = 'rgba(16, 15, 24, 0.84)';
-    ctx.strokeStyle = 'rgba(255, 130, 80, 0.42)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(-cardW * 0.5, -cardH * 0.5, cardW, cardH, 28);
-    ctx.fill();
-    ctx.stroke();
-
-    // Top accent bar (#FF4D2A -> #FACC15)
-    const barGrad = ctx.createLinearGradient(-220, 0, 220, 0);
-    barGrad.addColorStop(0, '#FF4D2A');
-    barGrad.addColorStop(1, '#FACC15');
-    ctx.fillStyle = barGrad;
-    ctx.beginPath();
-    ctx.roundRect(-140, -cardH * 0.5 + 48, 280, 6, 3);
-    ctx.fill();
-
-    // Eyebrow badge
-    ctx.fillStyle = '#FF8A5B';
-    ctx.font = '700 18px "Inter", "Segoe UI", system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('VẬT LÍ 10 • BÀI MỞ ĐẦU', 0, -162);
-
-    // Main title with spring-physics typography
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = '800 52px "Inter", "Segoe UI", system-ui, sans-serif';
-    ctx.fillText('SƠ LƯỢC VỀ SỰ PHÁT TRIỂN CỦA VẬT LÍ HỌC', 0, -76);
-
-    // Subtitle
-    ctx.globalAlpha = subFade;
-    ctx.fillStyle = '#E2E8F0';
-    ctx.font = 'italic 500 28px "Inter", "Segoe UI", system-ui, sans-serif';
-    ctx.fillText(
-      '“Hành trình từ tư duy triết học đến khám phá vũ trụ”',
-      0,
-      -4 + (1 - subFade) * 18
-    );
-
-    // Divider line
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(-360, 56);
-    ctx.lineTo(360, 56);
-    ctx.stroke();
-
-    // NHÓM 1 pill & members
-    ctx.globalAlpha = teamFade;
-    const teamY = 122 + (1 - teamFade) * 16;
-
-    ctx.fillStyle = '#FF4D2A';
-    ctx.beginPath();
-    ctx.roundRect(-90, teamY - 22, 180, 42, 21);
-    ctx.fill();
-
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = '800 20px "Inter", "Segoe UI", system-ui, sans-serif';
-    ctx.fillText('NHÓM 1', 0, teamY - 1);
-
-    ctx.fillStyle = '#F8FAFC';
-    ctx.font = '600 25px "Inter", "Segoe UI", system-ui, sans-serif';
-    ctx.fillText(
-      'Minh Quân  •  Tuấn Minh  •  Đăng Quang  •  Phú Quang',
-      0,
-      teamY + 64
-    );
-
-    ctx.restore();
-  }
-
-  // =========================================================================
-  // 4. Cinematic Subtitles & Letterbox Overlay
-  // =========================================================================
-  function renderSubtitleOverlay(ctx, t) {
-    let activeCue = null;
-    for (let i = 0; i < DIALOGUE_CUES.length; i++) {
-      const cue = DIALOGUE_CUES[i];
-      if (t >= cue.start && t <= cue.end) {
-        activeCue = cue;
+        // Crisp Shockwave Ring at lt >= 5.5s (Minh Quân finger snap)
+        if (lt >= 5.5) {
+          const snapElapsed = lt - 5.5;
+          const ringR = snapElapsed * 950;
+          const ringAlpha = clamp(1 - snapElapsed * 0.85, 0, 1);
+          if (ringAlpha > 0.01) {
+            ctx.strokeStyle = `rgba(255, 220, 150, ${ringAlpha.toFixed(3)})`;
+            ctx.lineWidth = 8;
+            ctx.beginPath();
+            ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
         break;
       }
     }
-    if (!activeCue) return;
 
-    const fadeIn = clamp((t - activeCue.start) / 0.22, 0, 1);
-    const fadeOut = clamp((activeCue.end - t) / 0.22, 0, 1);
-    const alpha = Math.min(fadeIn, fadeOut);
-    if (alpha <= 0.01) return;
-
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.font = '600 28px "Inter", "Segoe UI", system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    const textWidth = ctx.measureText(activeCue.text).width;
-    const pillW = Math.min(1680, textWidth + 76);
-    const pillH = 66;
-    const pillX = (LOGICAL_W - pillW) * 0.5;
-    const pillY = LOGICAL_H - 122 + (1 - alpha) * 10;
-
-    // Dark translucent subtitle pill (rgba(10, 10, 14, 0.78))
-    ctx.fillStyle = 'rgba(10, 10, 14, 0.78)';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.roundRect(pillX, pillY, pillW, pillH, 18);
-    ctx.fill();
-    ctx.stroke();
-
-    // Crisp white subtitle text
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(activeCue.text, LOGICAL_W * 0.5, pillY + pillH * 0.5 + 1);
     ctx.restore();
   }
 
-  function processAudioCues(t) {
-    if (!global.IntroAudio) return;
+  // ============================================================================
+  // 4. EDITORIAL HUD: ERA PILL, SUBTITLE BOX, AND SCENE 14 TITLE CARD
+  // ============================================================================
+  function drawSubtitleAndEraHUD(ctx, scene, lt) {
+    if (!scene) return;
+    ctx.save();
 
-    // Trigger SFX cues once
-    for (let i = 0; i < SFX_CUES.length; i++) {
-      const s = SFX_CUES[i];
-      if (t >= s.time && !triggeredSFX.has(s.id)) {
-        triggeredSFX.add(s.id);
-        global.IntroAudio.playSFX(s.sfx);
+    // Top-left Documentary Era Badge
+    if (scene.eraTag) {
+      ctx.fillStyle = 'rgba(12, 16, 28, 0.78)';
+      ctx.strokeStyle = 'rgba(255, 77, 42, 0.75)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(64, 46, 680, 46, 23);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#FF4D2A';
+      ctx.beginPath();
+      ctx.arc(92, 69, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#f8f9fa';
+      ctx.font = '700 18px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(scene.eraTag, 112, 75);
+    }
+
+    // Bottom Documentary Subtitle Bar
+    if (scene.subtitle) {
+      const boxW = 1440;
+      const boxH = 118;
+      const boxX = (W - boxW) * 0.5;
+      const boxY = H - 195;
+
+      ctx.fillStyle = 'rgba(10, 12, 20, 0.84)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(boxX, boxY, boxW, boxH, 18);
+      ctx.fill();
+      ctx.stroke();
+
+      // Speaker color accent bar on left edge
+      const accentColor =
+        scene.role === 'quan'
+          ? '#4ea8de'
+          : scene.role === 'minh'
+          ? '#ff9f43'
+          : '#FF4D2A';
+      ctx.fillStyle = accentColor;
+      ctx.beginPath();
+      ctx.roundRect(boxX, boxY, 8, boxH, [18, 0, 0, 18]);
+      ctx.fill();
+
+      // Two-line automatic text wrapping (zero while loops, bounded word loop <= 60)
+      const words = scene.subtitle.split(' ');
+      const maxWords = Math.min(60, words.length);
+      let line1 = '';
+      let line2 = '';
+      ctx.font = '600 25px system-ui, -apple-system, sans-serif';
+
+      for (let i = 0; i < maxWords; i++) {
+        const test = line1 ? line1 + ' ' + words[i] : words[i];
+        if (ctx.measureText(test).width < boxW - 90 && !line2) {
+          line1 = test;
+        } else {
+          line2 = line2 ? line2 + ' ' + words[i] : words[i];
+        }
+      }
+
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      if (line2) {
+        ctx.fillText(line1, W * 0.5, boxY + 48);
+        ctx.fillText(line2, W * 0.5, boxY + 86);
+      } else {
+        ctx.fillText(line1, W * 0.5, boxY + 68);
       }
     }
 
-    // Trigger Vietnamese dialogue cues once at start of each line
-    for (let i = 0; i < DIALOGUE_CUES.length; i++) {
-      const d = DIALOGUE_CUES[i];
-      if (t >= d.start && t < d.end && !triggeredDialogues.has(d.id)) {
-        triggeredDialogues.add(d.id);
-        global.IntroAudio.speak(d.voiceText || d.text, d.rate);
-      }
-    }
+    ctx.restore();
   }
 
-  // =========================================================================
-  // 5. Master Frame Render & Animation Loop
-  // =========================================================================
-  function renderFrameAt(t, dt) {
-    if (!ctx) return;
-
-    updateCamera(t, dt);
-    ctx.clearRect(0, 0, LOGICAL_W, LOGICAL_H);
-
-    if (t < 4.2) {
-      renderScene1(ctx, t);
-    } else if (t < 8.8) {
-      renderScene2(ctx, t);
-    } else if (t < 12.5) {
-      renderScene3(ctx, t);
-    } else if (t < 17.5) {
-      renderScene4(ctx, t);
-    } else if (t < 19.5) {
-      renderScene5(ctx, t);
+  function drawTitleCardScene(ctx, lt, t) {
+    // Scene 14 (129.5s -> 135.0s): Dark-glass editorial title card
+    if (window.IntroBG && typeof window.IntroBG.drawDuskSkyline === 'function') {
+      window.IntroBG.drawDuskSkyline(ctx, t * 1000, 0, 0);
     } else {
-      renderScene6(ctx, t);
+      ctx.fillStyle = '#0b0e1a';
+      ctx.fillRect(0, 0, W, H);
     }
 
-    renderSubtitleOverlay(ctx, t);
+    ctx.save();
+    ctx.fillStyle = 'rgba(7, 10, 18, 0.84)';
+    ctx.fillRect(0, 0, W, H);
 
-    if (progressBarEl) {
-      const pct = clamp((t / TOTAL_DURATION) * 100, 0, 100);
-      progressBarEl.style.width = pct.toFixed(2) + '%';
-    }
+    const spring = 1 - Math.exp(-lt * 4.5) * Math.cos(lt * 7);
+    const cardW = 1360;
+    const cardH = 620;
+    const cardX = (W - cardW) * 0.5;
+    const cardY = (H - cardH) * 0.5 - 20;
+
+    ctx.translate(W * 0.5, H * 0.5);
+    ctx.scale(0.92 + 0.08 * spring, 0.92 + 0.08 * spring);
+    ctx.translate(-W * 0.5, -H * 0.5);
+
+    // Glass card container
+    ctx.fillStyle = 'rgba(18, 22, 36, 0.90)';
+    ctx.strokeStyle = 'rgba(255, 77, 42, 0.70)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.roundRect(cardX, cardY, cardW, cardH, 28);
+    ctx.fill();
+    ctx.stroke();
+
+    // Accent badge
+    ctx.fillStyle = '#FF4D2A';
+    ctx.font = '800 22px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('VẬT LÍ 10 • BÀI MỞ ĐẦU • NHÓM 1', W * 0.5, cardY + 95);
+
+    // Main Title
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 54px system-ui, -apple-system, sans-serif';
+    ctx.fillText('SƠ LƯỢC VỀ SỰ PHÁT TRIỂN CỦA VẬT LÍ HỌC', W * 0.5, cardY + 190);
+
+    // Subtitle
+    ctx.fillStyle = '#ffd166';
+    ctx.font = 'italic 600 30px system-ui, -apple-system, sans-serif';
+    ctx.fillText('“Hành trình từ tư duy triết học đến khám phá vũ trụ”', W * 0.5, cardY + 255);
+
+    // Divider line
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(W * 0.5 - 380, cardY + 310);
+    ctx.lineTo(W * 0.5 + 380, cardY + 310);
+    ctx.stroke();
+
+    // Presenters & Full Team Credits
+    ctx.fillStyle = '#64ffda';
+    ctx.font = '700 26px system-ui, -apple-system, sans-serif';
+    ctx.fillText('Thuyết trình: Phan Nguyễn Minh Quân & Vũ Nguyễn Tuấn Minh', W * 0.5, cardY + 385);
+
+    ctx.fillStyle = '#d8e2ef';
+    ctx.font = '500 23px system-ui, -apple-system, sans-serif';
+    ctx.fillText(
+      'Thành viên Nhóm 1: Nguyễn Trần Đăng Quang • Phan Nguyễn Minh Quân',
+      W * 0.5,
+      cardY + 455
+    );
+    ctx.fillText(
+      'Nguyễn Phú Quang • Vũ Nguyễn Tuấn Minh',
+      W * 0.5,
+      cardY + 498
+    );
+
+    ctx.restore();
   }
 
-  function tickLoop(nowPerf) {
-    if (!isPlaying || isFinished) return;
-
-    const dt = clamp((nowPerf - lastFramePerf) * 0.001, 0.001, 0.08);
-    lastFramePerf = nowPerf;
-    currentT = (nowPerf - startPerfTime) * 0.001;
-
-    processAudioCues(currentT);
-    renderFrameAt(currentT, dt);
-
-    if (currentT >= TOTAL_DURATION) {
-      finishIntro();
-      return;
-    }
-
-    rafId = global.requestAnimationFrame(tickLoop);
-  }
-
-  // =========================================================================
-  // 6. Playback Control & Seamless Handoff to window.App
-  // =========================================================================
-  function startIntroPlayback() {
-    if (isPlaying || isFinished) return;
-    isPlaying = true;
-
-    if (playOverlayBtn) {
-      playOverlayBtn.style.opacity = '0';
-      playOverlayBtn.style.pointerEvents = 'none';
-      global.setTimeout(() => {
-        if (playOverlayBtn && playOverlayBtn.parentNode) {
-          playOverlayBtn.parentNode.removeChild(playOverlayBtn);
-        }
-      }, 320);
-    }
-
-    if (global.IntroAudio) {
-      global.IntroAudio.unlock();
-      global.IntroAudio.startMusic();
-    }
-
-    triggeredDialogues.clear();
-    triggeredSFX.clear();
-    currentSceneIndex = -1;
-
-    startPerfTime = performance.now();
-    lastFramePerf = startPerfTime;
-    rafId = global.requestAnimationFrame(tickLoop);
-  }
-
-  function activateSlideZero() {
-    if (!global.App) return;
+  // ============================================================================
+  // 5. MAIN FRAME RENDERER (Protected by try/catch, 60 FPS)
+  // ============================================================================
+  function renderFrame(ctx, tSec, state) {
     try {
-      if (typeof global.App.goToSlide === 'function') {
-        global.App.goToSlide(0);
-      } else if (typeof global.App.showSlide === 'function') {
-        global.App.showSlide(0);
-      } else if (typeof global.App.start === 'function') {
-        global.App.start();
-      }
-    } catch (_) {}
-  }
+      const t = clamp(tSec, 0, TOTAL_DURATION);
+      const ms = t * 1000;
+      const scene = getSceneAt(t);
+      const lt = Math.max(0, t - scene.start);
 
-  function removeIntroDOM() {
-    if (wrapEl && wrapEl.parentNode) {
-      wrapEl.style.transition = 'opacity 0.42s ease';
-      wrapEl.style.opacity = '0';
-      global.setTimeout(() => {
-        if (wrapEl && wrapEl.parentNode) {
-          wrapEl.parentNode.removeChild(wrapEl);
-        }
-      }, 440);
-    }
-  }
-
-  function finishIntro() {
-    if (isFinished) return;
-    isFinished = true;
-    isPlaying = false;
-
-    if (rafId !== null) {
-      global.cancelAnimationFrame(rafId);
-      rafId = null;
-    }
-
-    if (global.IntroAudio) {
-      global.IntroAudio.stopSpeech();
-      global.IntroAudio.stopMusic();
-    }
-
-    // Trigger diagonal transition into Slide 0 if window.App.transitions is available
-    if (
-      global.App &&
-      global.App.transitions &&
-      typeof global.App.transitions.play === 'function'
-    ) {
-      try {
-        global.App.transitions.play('diagonal', () => {
-          activateSlideZero();
-          if (wrapEl && wrapEl.parentNode) {
-            wrapEl.parentNode.removeChild(wrapEl);
-          }
-        });
+      // Scene 14 Title Card branch
+      if (scene.shot === 'title_card') {
+        drawTitleCardScene(ctx, lt, t);
         return;
-      } catch (_) {}
+      }
+
+      // Live mouth-open value from IntroAudio
+      const rawMouth =
+        window.IntroAudio && typeof window.IntroAudio.getMouthOpen === 'function'
+          ? window.IntroAudio.getMouthOpen(ms)
+          : 0;
+      const quanMouth = scene.role === 'quan' ? rawMouth : 0;
+      const minhMouth = scene.role === 'minh' ? rawMouth : 0;
+
+      // Subtle cinematic camera drift
+      const camX = Math.sin(t * 0.45) * 18;
+      const camY = Math.cos(t * 0.35) * 10;
+
+      // Determine effective shot (Scene 7 transitions from closeup_minh to macro at lt = 3.2s)
+      let activeShot = scene.shot;
+      if (activeShot === 'closeup_minh_to_macro') {
+        activeShot = lt < 3.2 ? 'closeup_minh' : 'macro';
+      }
+
+      // 1. Render Background Layer
+      const BG = window.IntroBG;
+      if (activeShot === 'rooftop') {
+        if (BG && BG.drawRooftopSunset) BG.drawRooftopSunset(ctx, ms, camX, camY);
+        else {
+          ctx.fillStyle = '#241838';
+          ctx.fillRect(0, 0, W, H);
+        }
+      } else if (activeShot === 'macro') {
+        if (BG && BG.drawMacroTable) BG.drawMacroTable(ctx, ms, camX, camY);
+        else {
+          ctx.fillStyle = '#2a1810';
+          ctx.fillRect(0, 0, W, H);
+        }
+      } else if (activeShot === 'galaxy_zoom') {
+        if (BG && BG.drawDuskSkyline) BG.drawDuskSkyline(ctx, ms, camX, camY);
+        else {
+          ctx.fillStyle = '#090c1c';
+          ctx.fillRect(0, 0, W, H);
+        }
+      } else {
+        if (BG && BG.drawCafeInterior) BG.drawCafeInterior(ctx, ms, camX, camY);
+        else {
+          ctx.fillStyle = '#261710';
+          ctx.fillRect(0, 0, W, H);
+        }
+        if (activeShot === 'cafe_dark') {
+          ctx.fillStyle = 'rgba(10, 12, 34, 0.62)';
+          ctx.fillRect(0, 0, W, H);
+        }
+      }
+
+      // 2. Render Characters by Shot Type
+      const fourthWall = activeShot === 'cafe_fourth_wall';
+      if (activeShot === 'rooftop') {
+        drawCharacterSafe(ctx, 'quan', 680, 820, 1.05, {
+          mouthOpen: quanMouth,
+          emotion: 'confident',
+          eyeLookX: 0.4,
+          eyeLookY: -0.6,
+          gesture: 'pointUp'
+        });
+        drawCharacterSafe(ctx, 'minh', 1180, 835, 1.02, {
+          mouthOpen: minhMouth,
+          emotion: 'curious',
+          eyeLookX: 0.3,
+          eyeLookY: -0.6,
+          gesture: 'idle'
+        });
+      } else if (
+        activeShot === 'cafe' ||
+        activeShot === 'cafe_dark' ||
+        activeShot === 'cafe_fourth_wall' ||
+        activeShot === 'galaxy_zoom'
+      ) {
+        drawCharacterSafe(ctx, 'quan', 520, 830, 1.08, {
+          mouthOpen: quanMouth,
+          emotion: fourthWall ? 'confident' : 'neutral',
+          eyeLookX: fourthWall ? 0 : 0.5,
+          eyeLookY: fourthWall ? 0 : -0.1,
+          gesture: scene.id === 13 && lt >= 5.3 ? 'snap' : 'explain'
+        });
+        drawCharacterSafe(ctx, 'minh', 1390, 840, 1.05, {
+          mouthOpen: minhMouth,
+          emotion: activeShot === 'cafe_dark' ? 'shocked' : fourthWall ? 'confident' : 'curious',
+          eyeLookX: fourthWall ? 0 : -0.5,
+          eyeLookY: fourthWall ? 0 : -0.1,
+          gesture: 'listen'
+        });
+
+        // Cafe foreground table ledge
+        ctx.fillStyle = '#2b160c';
+        ctx.fillRect(240, 770, 1440, 42);
+      } else if (activeShot === 'closeup_minh') {
+        drawCharacterSafe(ctx, 'minh', W * 0.5, 960, 1.65, {
+          mouthOpen: minhMouth,
+          emotion: 'shocked',
+          eyeLookX: -0.2,
+          eyeLookY: -0.15,
+          gesture: 'surprised'
+        });
+      } else if (activeShot === 'closeup_quan') {
+        drawCharacterSafe(ctx, 'quan', W * 0.38, 960, 1.65, {
+          mouthOpen: quanMouth,
+          emotion: 'neutral',
+          eyeLookX: 0.15,
+          eyeLookY: -0.05,
+          gesture: 'thoughtful'
+        });
+      }
+
+      // 3. Render Era-Specific Vector Science Hologram
+      drawScienceHologram(ctx, scene.hologram, lt, t);
+
+      // 4. Render Documentary Era Tag & Subtitle Box
+      drawSubtitleAndEraHUD(ctx, scene, lt);
+    } catch (err) {
+      // Never allow any frame error to freeze or blank the presentation
     }
-
-    activateSlideZero();
-    removeIntroDOM();
   }
 
-  // =========================================================================
-  // 7. DOM Mount & Immediate Frame-0 Anti-Black-Screen Render
-  // =========================================================================
-  function mountIntro() {
-    if (document.getElementById('intro-movie-wrap')) return;
+  // ============================================================================
+  // 6. DIRECTOR CONTROLLER, AUDIO TRIGGERS & INTERACTIVE SCRUBBER BAR
+  // ============================================================================
+  const IntroDirector = {
+    container: null,
+    canvas: null,
+    ctx: null,
+    isPlaying: false,
+    isFinished: false,
+    currentTime: 0,
+    lastRafTime: 0,
+    rafId: null,
+    lastTriggeredSceneId: 0,
+    snapTriggered: false,
 
-    wrapEl = document.createElement('div');
-    wrapEl.id = 'intro-movie-wrap';
-    wrapEl.style.cssText = [
-      'position: fixed',
-      'inset: 0',
-      'z-index: 99999',
-      'background: #080808',
-      'display: flex',
-      'align-items: center',
-      'justify-content: center',
-      'overflow: hidden',
-      'user-select: none',
-      'font-family: "Inter", "Segoe UI", system-ui, sans-serif',
-    ].join(';');
+    // UI Elements
+    playBtn: null,
+    scrubberWrap: null,
+    scrubberFill: null,
+    timecodeLabel: null,
+    skipBtn: null,
 
-    canvas = document.createElement('canvas');
-    canvas.width = LOGICAL_W;
-    canvas.height = LOGICAL_H;
-    canvas.style.cssText = [
-      'width: 100%',
-      'height: 100%',
-      'max-width: 100vw',
-      'max-height: 100vh',
-      'object-fit: contain',
-      'display: block',
-    ].join(';');
-    ctx = canvas.getContext('2d');
-    wrapEl.appendChild(canvas);
+    init: function (containerSelector) {
+      this.container =
+        typeof containerSelector === 'string'
+          ? document.querySelector(containerSelector)
+          : containerSelector || document.getElementById('intro-container') || document.body;
 
-    // Centered Play Button Overlay
-    playOverlayBtn = document.createElement('button');
-    playOverlayBtn.type = 'button';
-    playOverlayBtn.textContent = '▶ PHÁT INTRO HOẠT HÌNH';
-    playOverlayBtn.style.cssText = [
-      'position: absolute',
-      'left: 50%',
-      'top: 50%',
-      'transform: translate(-50%, -50%)',
-      'padding: 20px 42px',
-      'font-size: 22px',
-      'font-weight: 800',
-      'letter-spacing: 0.04em',
-      'color: #FFFFFF',
-      'background: linear-gradient(135deg, #FF4D2A 0%, #E03515 100%)',
-      'border: 2px solid rgba(255, 255, 255, 0.28)',
-      'border-radius: 999px',
-      'box-shadow: 0 18px 48px rgba(255, 77, 42, 0.45), 0 0 0 8px rgba(255, 77, 42, 0.16)',
-      'cursor: pointer',
-      'transition: transform 0.2s ease, opacity 0.3s ease, box-shadow 0.2s ease',
-      'z-index: 2',
-    ].join(';');
+      this._buildDOM();
 
-    playOverlayBtn.addEventListener('mouseenter', () => {
-      playOverlayBtn.style.transform = 'translate(-50%, -50%) scale(1.05)';
-    });
-    playOverlayBtn.addEventListener('mouseleave', () => {
-      playOverlayBtn.style.transform = 'translate(-50%, -50%) scale(1.0)';
-    });
-    playOverlayBtn.addEventListener('click', startIntroPlayback);
-    wrapEl.appendChild(playOverlayBtn);
+      // ANTI-BLACK-SCREEN SAFEGUARD: Synchronously render frame 0.0s immediately upon mount
+      renderFrame(this.ctx, 0, this);
+      this._updateScrubberUI();
+      return this;
+    },
 
-    // Bottom-Right Skip Button
-    const skipBtn = document.createElement('button');
-    skipBtn.type = 'button';
-    skipBtn.textContent = 'Vào Slide thuyết trình →';
-    skipBtn.style.cssText = [
-      'position: absolute',
-      'right: 32px',
-      'bottom: 28px',
-      'padding: 11px 22px',
-      'font-size: 15px',
-      'font-weight: 600',
-      'color: rgba(255, 255, 255, 0.9)',
-      'background: rgba(16, 16, 24, 0.76)',
-      'border: 1px solid rgba(255, 255, 255, 0.22)',
-      'border-radius: 999px',
-      'backdrop-filter: blur(8px)',
-      'cursor: pointer',
-      'transition: background 0.2s ease, color 0.2s ease',
-      'z-index: 3',
-    ].join(';');
+    _buildDOM: function () {
+      // Create or reuse wrapper
+      let root = document.getElementById('intro-director-root');
+      if (!root) {
+        root = document.createElement('div');
+        root.id = 'intro-director-root';
+        root.style.cssText =
+          'position:fixed;inset:0;z-index:9999;background:#080a12;display:flex;align-items:center;justify-content:center;overflow:hidden;font-family:system-ui,-apple-system,sans-serif;user-select:none;';
+        this.container.appendChild(root);
+      } else {
+        root.innerHTML = '';
+      }
+      this.root = root;
 
-    skipBtn.addEventListener('mouseenter', () => {
-      skipBtn.style.background = 'rgba(255, 77, 42, 0.88)';
-      skipBtn.style.color = '#FFFFFF';
-    });
-    skipBtn.addEventListener('mouseleave', () => {
-      skipBtn.style.background = 'rgba(16, 16, 24, 0.76)';
-      skipBtn.style.color = 'rgba(255, 255, 255, 0.9)';
-    });
-    skipBtn.addEventListener('click', finishIntro);
-    wrapEl.appendChild(skipBtn);
+      // Hardcoded 1920x1080 HD Canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = W;
+      canvas.height = H;
+      canvas.style.cssText =
+        'width:100%;height:100%;object-fit:contain;display:block;background:#0b0e1a;';
+      root.appendChild(canvas);
+      this.canvas = canvas;
+      this.ctx = canvas.getContext('2d');
 
-    // Bottom Progress Bar Track & Fill (#FF4D2A)
-    const progressTrack = document.createElement('div');
-    progressTrack.style.cssText = [
-      'position: absolute',
-      'left: 0',
-      'right: 0',
-      'bottom: 0',
-      'height: 5px',
-      'background: rgba(255, 255, 255, 0.14)',
-      'z-index: 3',
-    ].join(';');
+      // Centered Play Button: `▶ PHÁT INTRO (02:15)`
+      const playBtn = document.createElement('button');
+      playBtn.type = 'button';
+      playBtn.textContent = '▶ PHÁT INTRO (02:15)';
+      playBtn.style.cssText =
+        'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);padding:20px 42px;font-size:24px;font-weight:800;color:#ffffff;background:linear-gradient(135deg,#FF4D2A,#ff7b39);border:2px solid rgba(255,255,255,0.35);border-radius:999px;cursor:pointer;box-shadow:0 18px 48px rgba(255,77,42,0.45);letter-spacing:0.5px;transition:transform 0.18s ease,opacity 0.2s ease;z-index:20;';
+      root.appendChild(playBtn);
+      this.playBtn = playBtn;
 
-    progressBarEl = document.createElement('div');
-    progressBarEl.style.cssText = [
-      'width: 0%',
-      'height: 100%',
-      'background: #FF4D2A',
-      'box-shadow: 0 0 12px rgba(255, 77, 42, 0.8)',
-      'transition: width 0.05s linear',
-    ].join(';');
+      // Bottom Control Bar (Clickable Scrubber + Timecode + Skip Button)
+      const bottomBar = document.createElement('div');
+      bottomBar.style.cssText =
+        'position:absolute;left:0;right:0;bottom:0;height:68px;padding:0 32px;background:linear-gradient(to top,rgba(5,7,14,0.95),rgba(5,7,14,0.0));display:flex;align-items:center;gap:20px;z-index:20;';
+      root.appendChild(bottomBar);
 
-    progressTrack.appendChild(progressBarEl);
-    wrapEl.appendChild(progressTrack);
+      // Play/Pause toggle mini button
+      const miniToggle = document.createElement('button');
+      miniToggle.type = 'button';
+      miniToggle.textContent = '▶';
+      miniToggle.style.cssText =
+        'width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,0.25);background:rgba(18,22,36,0.85);color:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+      bottomBar.appendChild(miniToggle);
+      this.miniToggle = miniToggle;
 
-    document.body.appendChild(wrapEl);
+      // Clickable Timeline Scrubber Track
+      const scrubberWrap = document.createElement('div');
+      scrubberWrap.title = 'Nhấp để tua tới bất kì cảnh nào (00:00 - 02:15)';
+      scrubberWrap.style.cssText =
+        'flex:1;height:14px;background:rgba(255,255,255,0.18);border-radius:999px;position:relative;cursor:pointer;overflow:hidden;';
+      bottomBar.appendChild(scrubberWrap);
+      this.scrubberWrap = scrubberWrap;
 
-    // Synchronously draw Frame 0 immediately so the dusk rooftop scene is visible behind Play button
-    renderFrameAt(0, 1 / 60);
-  }
+      const scrubberFill = document.createElement('div');
+      scrubberFill.style.cssText =
+        'height:100%;width:0%;background:#FF4D2A;border-radius:999px;box-shadow:0 0 12px #FF4D2A;pointer-events:none;';
+      scrubberWrap.appendChild(scrubberFill);
+      this.scrubberFill = scrubberFill;
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', mountIntro);
-  } else {
-    mountIntro();
-  }
+      // Live Timecode Readout (`MM:SS / 02:15`)
+      const timecodeLabel = document.createElement('div');
+      timecodeLabel.textContent = '00:00 / 02:15';
+      timecodeLabel.style.cssText =
+        'min-width:125px;font-family:monospace;font-size:16px;font-weight:700;color:#f1f5f9;text-align:center;';
+      bottomBar.appendChild(timecodeLabel);
+      this.timecodeLabel = timecodeLabel;
 
-  global.IntroDirector = {
-    start: startIntroPlayback,
-    skip: finishIntro,
-    finishIntro,
-    renderFrameAt,
+      // Bottom-Right Skip Button (`Vào Slide thuyết trình →`)
+      const skipBtn = document.createElement('button');
+      skipBtn.type = 'button';
+      skipBtn.textContent = 'Vào Slide thuyết trình →';
+      skipBtn.style.cssText =
+        'padding:10px 22px;font-size:15px;font-weight:700;color:#ffffff;background:rgba(255,77,42,0.88);border:1px solid rgba(255,255,255,0.3);border-radius:999px;cursor:pointer;white-space:nowrap;';
+      bottomBar.appendChild(skipBtn);
+      this.skipBtn = skipBtn;
+
+      // Event Listeners
+      const self = this;
+      playBtn.addEventListener('click', function () {
+        self.play();
+      });
+
+      miniToggle.addEventListener('click', function () {
+        if (self.isPlaying) self.pause();
+        else self.play();
+      });
+
+      scrubberWrap.addEventListener('click', function (e) {
+        const rect = scrubberWrap.getBoundingClientRect();
+        if (rect.width <= 0) return;
+        const ratio = clamp((e.clientX - rect.left) / rect.width, 0, 1);
+        self.seek(ratio * TOTAL_DURATION);
+      });
+
+      skipBtn.addEventListener('click', function () {
+        self.finishIntro();
+      });
+    },
+
+    play: function () {
+      if (this.isFinished) return;
+      if (this.currentTime >= TOTAL_DURATION) {
+        this.currentTime = 0;
+        this.lastTriggeredSceneId = 0;
+      }
+
+      this.isPlaying = true;
+      this.lastRafTime = performance.now();
+
+      if (this.playBtn) this.playBtn.style.display = 'none';
+      if (this.miniToggle) this.miniToggle.textContent = '❚❚';
+
+      // Unlock Web Audio & start Lo-Fi underscore
+      if (window.IntroAudio) {
+        if (typeof window.IntroAudio.init === 'function') window.IntroAudio.init();
+        if (!window.IntroAudio.isPlayingMusic && typeof window.IntroAudio.startMusic === 'function') {
+          window.IntroAudio.startMusic();
+        }
+      }
+
+      // Trigger voiceover & SFX for current scene if not yet triggered
+      this._triggerSceneAudio(getSceneAt(this.currentTime), true);
+
+      if (!this.rafId) {
+        const self = this;
+        const tick = function (now) {
+          self._loop(now);
+        };
+        this.rafId = requestAnimationFrame(tick);
+      }
+    },
+
+    pause: function () {
+      this.isPlaying = false;
+      if (this.rafId) {
+        cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
+      if (this.miniToggle) this.miniToggle.textContent = '▶';
+      if (this.playBtn) {
+        this.playBtn.textContent = '▶ TIẾP TỤC INTRO';
+        this.playBtn.style.display = 'block';
+      }
+      if (window.IntroAudio && typeof window.IntroAudio._stopActiveVoice === 'function') {
+        window.IntroAudio._stopActiveVoice();
+      }
+    },
+
+    seek: function (targetSeconds) {
+      this.currentTime = clamp(targetSeconds, 0, TOTAL_DURATION);
+      this.lastTriggeredSceneId = 0;
+      this.snapTriggered = false;
+
+      const scene = getSceneAt(this.currentTime);
+      renderFrame(this.ctx, this.currentTime, this);
+      this._updateScrubberUI();
+
+      if (this.isPlaying) {
+        this._triggerSceneAudio(scene, true);
+      }
+    },
+
+    _triggerSceneAudio: function (scene, force) {
+      if (!scene) return;
+      if (!force && this.lastTriggeredSceneId === scene.id) return;
+
+      this.lastTriggeredSceneId = scene.id;
+      this.snapTriggered = false;
+
+      if (!window.IntroAudio) return;
+
+      if (scene.sfx && typeof window.IntroAudio.playSFX === 'function') {
+        window.IntroAudio.playSFX(scene.sfx);
+      }
+
+      if (scene.clipId && scene.subtitle && typeof window.IntroAudio.speak === 'function') {
+        window.IntroAudio.speak(scene.subtitle, scene.clipId, scene.role || 'narrator');
+      }
+    },
+
+    _updateScrubberUI: function () {
+      const pct = clamp((this.currentTime / TOTAL_DURATION) * 100, 0, 100);
+      if (this.scrubberFill) {
+        this.scrubberFill.style.width = pct.toFixed(2) + '%';
+      }
+      if (this.timecodeLabel) {
+        this.timecodeLabel.textContent =
+          formatMMSS(this.currentTime) + ' / ' + formatMMSS(TOTAL_DURATION);
+      }
+    },
+
+    _loop: function (now) {
+      if (!this.isPlaying || this.isFinished) return;
+
+      const dt = clamp((now - this.lastRafTime) * 0.001, 0, 0.1);
+      this.lastRafTime = now;
+      this.currentTime += dt;
+
+      if (this.currentTime >= TOTAL_DURATION) {
+        this.currentTime = TOTAL_DURATION;
+        this._updateScrubberUI();
+        renderFrame(this.ctx, TOTAL_DURATION, this);
+        this.finishIntro();
+        return;
+      }
+
+      const scene = getSceneAt(this.currentTime);
+      if (scene.id !== this.lastTriggeredSceneId) {
+        this._triggerSceneAudio(scene, false);
+      }
+
+      // Scene 13 finger snap SFX at lt = 5.5s
+      const lt = this.currentTime - scene.start;
+      if (scene.id === 13 && lt >= 5.5 && !this.snapTriggered) {
+        this.snapTriggered = true;
+        if (window.IntroAudio && typeof window.IntroAudio.playSFX === 'function') {
+          window.IntroAudio.playSFX('snap');
+        }
+      }
+
+      renderFrame(this.ctx, this.currentTime, this);
+      this._updateScrubberUI();
+
+      const self = this;
+      this.rafId = requestAnimationFrame(function (nextNow) {
+        self._loop(nextNow);
+      });
+    },
+
+    finishIntro: function () {
+      if (this.isFinished) return;
+      this.isFinished = true;
+      this.isPlaying = false;
+
+      if (this.rafId) {
+        cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
+
+      if (window.IntroAudio) {
+        if (typeof window.IntroAudio.stopMusic === 'function') window.IntroAudio.stopMusic();
+        if (typeof window.IntroAudio._stopActiveVoice === 'function') {
+          window.IntroAudio._stopActiveVoice();
+        }
+      }
+
+      if (this.root) {
+        this.root.style.transition = 'opacity 0.45s ease';
+        this.root.style.opacity = '0';
+        const rootEl = this.root;
+        setTimeout(function () {
+          if (rootEl && rootEl.parentNode) {
+            rootEl.parentNode.removeChild(rootEl);
+          }
+        }, 460);
+      }
+
+      // Seamless handoff to Grade 10 Physics presentation (`window.App`)
+      try {
+        if (window.App) {
+          if (typeof window.App.start === 'function') window.App.start();
+          else if (typeof window.App.init === 'function') window.App.init();
+          else if (typeof window.App.showSlide === 'function') window.App.showSlide(0);
+        }
+        window.dispatchEvent(new CustomEvent('intro:finished'));
+      } catch (e) {}
+    }
   };
-})(window);
+
+  window.IntroDirector = IntroDirector;
+
+  // Auto-mount as soon as DOM is ready so the canvas is never blank
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+      IntroDirector.init();
+    });
+  } else {
+    IntroDirector.init();
+  }
+})();
