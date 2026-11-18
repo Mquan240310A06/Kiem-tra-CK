@@ -1,141 +1,84 @@
 /**
  * audio-engine.js
- * Documentary Story Audio Engine (135s / 13 Voiceover Cues) for Intro Director.
+ * High-Energy 60-Second Animated Intro Audio Engine (window.IntroAudio).
  *
- * STRICT ANTI-FREEZE & SAFETY GUARANTEES:
- * - 100% Ban on `window.speechSynthesis` (zero browser TTS calls).
- * - ZERO `while` loops anywhere in the file; all `for` loops are strictly bounded.
- * - Preloads `assets/voice1.mp3` through `assets/voice13.mp3` with graceful 404 handling.
- * - Real-time Web Audio `AnalyserNode` (`fftSize = 256`) time-domain RMS lip-sync when MP3 plays.
- * - Expressive 3-character syllable-cadence fallback synthesizer (`narrator`, `quan`, `minh`)
- *   when an MP3 is missing or blocked, driving `getMouthOpen(t)` seamlessly.
- * - Warm Lo-Fi electric-piano underscore (`Fmaj7 -> Em7 -> Dm7 -> Cmaj7`) every 3600ms
- *   through a 650Hz low-pass filter, with automatic voiceover ducking (`0.05` vs `0.15`).
+ * STRICT ANTI-FREEZE & SAFETY GUARANTEES (GEMINI 4 ARGON COMPLIANT):
+ * - Zero `window.speechSynthesis` calls.
+ * - Zero `while` loops; every `for` loop is strictly bounded (<= 6 iterations).
+ * - Zero `createMediaElementSource` loops, zero voice oscillators, zero voice intervals.
+ * - Preloads `assets/voice1.mp3` .. `assets/voice6.mp3` into `this.clips = []`.
+ * - Drives `getMouthOpen(t)` via dynamic multi-harmonic syllable wave
+ *   `Math.abs(Math.sin(t * 17) * Math.cos(t * 9.5) * Math.sin(t * 5))` until `this.synthUntil`.
+ * - Single-shot physical Foley SFX (< 0.3s) wrapped in `try/catch`:
+ *   'whoosh', 'zeroG', 'pop', 'powerDown', 'timeWarp', 'snap', 'bounce'.
+ * - Safe 2-oscillator low-pass filtered Lo-Fi underscore (3600ms interval, auto-stopped at now + 3.2s).
  */
 
 (function () {
   'use strict';
 
-  // Lo-Fi Electric Piano Chord Progression (3 voices per chord, Hz)
-  // Fmaj7 (F3, A3, E4) -> Em7 (E3, G3, D4) -> Dm7 (D3, F3, C4) -> Cmaj7 (C3, E3, B3)
-  const LOFI_CHORDS = [
-    [174.61, 220.00, 329.63], // Fmaj7
-    [164.81, 196.00, 293.66], // Em7
-    [146.83, 174.61, 261.63], // Dm7
-    [130.81, 164.81, 246.94]  // Cmaj7
+  // 2-Voice Warm Lo-Fi Dyad Progression (Root + Major/Minor 7th/3rd in Hz)
+  const LOFI_DYADS = [
+    [174.61, 261.63], // F3 + C4 (Fmaj)
+    [164.81, 246.94], // E3 + B3 (Em)
+    [146.83, 220.00], // D3 + A3 (Dm)
+    [130.81, 196.00]  // C3 + G3 (Cmaj)
   ];
-
-  // Expressive Character Voice Profiles for Fallback Syllable Synthesizer
-  const VOICE_PROFILES = {
-    narrator: {
-      baseMin: 145,
-      baseMax: 185,
-      wave: 'triangle',
-      subWave: 'sine',
-      syllableRate: 5.8,
-      gainPeak: 0.042
-    },
-    quan: {
-      baseMin: 205,
-      baseMax: 250,
-      wave: 'triangle',
-      subWave: 'sine',
-      syllableRate: 6.6,
-      gainPeak: 0.045
-    },
-    minh: {
-      baseMin: 295,
-      baseMax: 410,
-      wave: 'sine',
-      subWave: 'triangle',
-      syllableRate: 7.8,
-      gainPeak: 0.040
-    }
-  };
-
-  // Deterministic pseudo-random helper (zero loops)
-  function hash(n) {
-    const x = Math.sin(n * 127.1 + 311.7) * 43758.5453123;
-    return x - Math.floor(x);
-  }
 
   window.IntroAudio = {
     ctx: null,
     musicGain: null,
     musicFilter: null,
-    analyser: null,
-    timeDomainData: new Uint8Array(128),
-
-    // Voiceover state (1..13)
-    clips: {},
-    activeAudio: null,
-    activeClipId: 0,
-    activeRole: 'narrator',
-    usingLiveAnalyser: false,
-    speechStartTime: 0,
-    speechUntil: 0,
-    fallbackNodes: [],
-    duckRestoreTimer: null,
-
-    // Music state
     musicTimer: null,
     isPlayingMusic: false,
     chordIndex: 0,
-    muted: false,
+
+    // 6-Clip MP3 Voiceover State (1..6)
+    clips: [],
+    activeClip: null,
+    synthUntil: 0,
+    currentRole: 'narrator',
     preloaded: false,
+    muted: false,
 
     /**
-     * Preloads `assets/voice1.mp3` .. `assets/voice13.mp3` cleanly at startup
-     * without throwing errors if files are missing (404).
+     * Preloads `assets/voice1.mp3` .. `assets/voice6.mp3` into `this.clips = []`
+     * (1-indexed so `this.clips[1]` through `this.clips[6]` map directly to `clipId`).
      */
     preloadClips: function () {
       if (this.preloaded) return;
       this.preloaded = true;
+      this.clips = [null];
 
       const self = this;
-      for (let i = 1; i <= 13; i++) {
+      for (let i = 1; i <= 6; i++) {
         try {
           const audio = new Audio();
           audio.preload = 'auto';
-          audio.crossOrigin = 'anonymous';
           audio.src = 'assets/voice' + i + '.mp3';
 
-          const slot = {
-            id: i,
-            audio: audio,
-            sourceNode: null,
-            ready: false,
-            failed: false
-          };
-
-          audio.addEventListener('canplaythrough', function () {
-            slot.ready = true;
-          });
-
-          audio.addEventListener('error', function () {
-            slot.failed = true;
-            slot.ready = false;
-          });
-
           audio.addEventListener('ended', function () {
-            if (self.activeAudio === audio) {
-              self.usingLiveAnalyser = false;
-              self.activeAudio = null;
-              self.speechUntil = 0;
-              self._setMusicDuck(false);
+            if (self.activeClip === audio) {
+              self.activeClip = null;
+              self.synthUntil = 0;
+              self._updateMusicDuck(false);
             }
           });
 
-          this.clips[i] = slot;
+          audio.addEventListener('error', function () {
+            // Silently flag 404/missing file so play() fallback stays instant and error-free
+            audio._missing = true;
+          });
+
+          this.clips[i] = audio;
         } catch (e) {
-          this.clips[i] = { id: i, audio: null, sourceNode: null, ready: false, failed: true };
+          this.clips[i] = null;
         }
       }
     },
 
     /**
-     * Lazily initializes the Web Audio API context, master music bus (650Hz lowpass),
-     * and the 256-FFT `AnalyserNode` for real-time lip-sync.
+     * Lazily initializes or resumes the Web Audio API context and low-pass music bus.
      */
     init: function () {
       try {
@@ -146,122 +89,79 @@
           if (AudioCtx) {
             this.ctx = new AudioCtx();
 
-            // Master Lo-Fi Music Bus: 650Hz Low-Pass Filter -> Music Ducking GainNode
+            // Soft 620Hz low-pass filter -> ducking gain node -> destination
             this.musicFilter = this.ctx.createBiquadFilter();
             this.musicFilter.type = 'lowpass';
-            this.musicFilter.frequency.setValueAtTime(650, this.ctx.currentTime);
-            this.musicFilter.Q.setValueAtTime(0.7, this.ctx.currentTime);
+            this.musicFilter.frequency.setValueAtTime(620, this.ctx.currentTime);
 
             this.musicGain = this.ctx.createGain();
-            this.musicGain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+            this.musicGain.gain.setValueAtTime(0.14, this.ctx.currentTime);
 
             this.musicFilter.connect(this.musicGain);
             this.musicGain.connect(this.ctx.destination);
-
-            // Shared AnalyserNode (fftSize = 256 -> 128 time-domain samples)
-            this.analyser = this.ctx.createAnalyser();
-            this.analyser.fftSize = 256;
-            this.analyser.smoothingTimeConstant = 0.65;
-            this.timeDomainData = new Uint8Array(this.analyser.frequencyBinCount);
-            this.analyser.connect(this.ctx.destination);
           }
         }
 
         if (this.ctx && this.ctx.state === 'suspended') {
           this.ctx.resume().catch(function () {});
         }
-      } catch (e) {
-        // Safely ignore browser autoplay restriction exceptions
-      }
+      } catch (e) {}
       return this.ctx;
     },
 
     /**
-     * Smoothly ducks background Lo-Fi underscore volume to `0.05` during speech
-     * and restores it to `0.15` when finished.
+     * Smoothly ducks background Lo-Fi music while dialogue is active.
      */
-    _setMusicDuck: function (isDucked) {
+    _updateMusicDuck: function (isSpeaking) {
       try {
         if (!this.ctx || !this.musicGain) return;
         const now = this.ctx.currentTime;
-        const target = isDucked ? 0.05 : 0.15;
+        const target = isSpeaking ? 0.045 : 0.14;
         this.musicGain.gain.cancelScheduledValues(now);
         this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, now);
-        this.musicGain.gain.linearRampToValueAtTime(target, now + 0.25);
+        this.musicGain.gain.linearRampToValueAtTime(target, now + 0.2);
       } catch (e) {}
     },
 
     /**
-     * Cleanly halts any currently playing MP3 voice clip or fallback synthesizer nodes.
+     * Plays a single 2-note Lo-Fi chord through the low-pass filter (`osc.stop(now + 3.2)`).
      */
-    _stopActiveVoice: function () {
-      if (this.duckRestoreTimer !== null) {
-        clearTimeout(this.duckRestoreTimer);
-        this.duckRestoreTimer = null;
-      }
-
-      // Stop active HTMLAudioElement if playing
-      if (this.activeAudio) {
-        try {
-          this.activeAudio.pause();
-          this.activeAudio.currentTime = 0;
-        } catch (e) {}
-        this.activeAudio = null;
-      }
-
-      this.usingLiveAnalyser = false;
-
-      // Stop any scheduled fallback synthesizer oscillators (bounded <= 60)
-      const count = Math.min(60, this.fallbackNodes.length);
-      for (let i = 0; i < count; i++) {
-        try {
-          this.fallbackNodes[i].stop();
-          this.fallbackNodes[i].disconnect();
-        } catch (e) {}
-      }
-      this.fallbackNodes = [];
-    },
-
-    /**
-     * Plays a single Lo-Fi electric-piano chord (max 3 oscillators) through the 650Hz low-pass filter.
-     * Automatically stops and disconnects at `now + 3.45`.
-     */
-    _playLofiChord: function () {
+    _playLofiDyad: function () {
       if (this.muted || !this.isPlayingMusic) return;
       try {
         const ctx = this.init();
         if (!ctx || !this.musicFilter) return;
 
+        // Automatically restore music volume once `synthUntil` has elapsed
+        const isSpeaking = performance.now() < this.synthUntil;
+        this._updateMusicDuck(isSpeaking);
+
         const now = ctx.currentTime;
-        const chord = LOFI_CHORDS[this.chordIndex % LOFI_CHORDS.length];
-        this.chordIndex = (this.chordIndex + 1) % LOFI_CHORDS.length;
+        const notes = LOFI_DYADS[this.chordIndex % LOFI_DYADS.length];
+        this.chordIndex = (this.chordIndex + 1) % LOFI_DYADS.length;
 
-        // Strictly bounded loop: 3 notes per chord
-        for (let i = 0; i < 3; i++) {
+        // Strictly bounded loop: 2 soft sine oscillators
+        for (let i = 0; i < 2; i++) {
           const osc = ctx.createOscillator();
-          const noteGain = ctx.createGain();
+          const gain = ctx.createGain();
 
-          // Warm electric piano timbre: triangle fundamental with subtle warm detune
-          osc.type = i === 0 ? 'sine' : 'triangle';
-          const detuneHz = (i - 1) * 0.45;
-          osc.frequency.setValueAtTime(chord[i] + detuneHz, now);
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(notes[i], now);
 
-          // Gentle Rhodes-style envelope
-          noteGain.gain.setValueAtTime(0.0001, now);
-          noteGain.gain.linearRampToValueAtTime(0.32, now + 0.18);
-          noteGain.gain.exponentialRampToValueAtTime(0.14, now + 1.4);
-          noteGain.gain.exponentialRampToValueAtTime(0.0001, now + 3.4);
+          gain.gain.setValueAtTime(0.0001, now);
+          gain.gain.linearRampToValueAtTime(0.35, now + 0.35);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 3.15);
 
-          osc.connect(noteGain);
-          noteGain.connect(this.musicFilter);
+          osc.connect(gain);
+          gain.connect(this.musicFilter);
 
           osc.start(now);
-          osc.stop(now + 3.45);
+          osc.stop(now + 3.2);
 
           osc.onended = function () {
             try {
               osc.disconnect();
-              noteGain.disconnect();
+              gain.disconnect();
             } catch (err) {}
           };
         }
@@ -269,25 +169,24 @@
     },
 
     /**
-     * Starts the 3600ms Lo-Fi electric-piano chord progression.
+     * Starts the 3600ms Lo-Fi underscore interval, clearing any prior interval ID so it never duplicates.
      */
     startMusic: function () {
       try {
         this.stopMusic();
         this.init();
         this.isPlayingMusic = true;
-        this._setMusicDuck(performance.now() < this.speechUntil);
-        this._playLofiChord();
+        this._playLofiDyad();
 
         const self = this;
         this.musicTimer = setInterval(function () {
-          self._playLofiChord();
+          self._playLofiDyad();
         }, 3600);
       } catch (e) {}
     },
 
     /**
-     * Stops the Lo-Fi underscore timer cleanly.
+     * Stops the Lo-Fi underscore interval and clears the stored interval ID.
      */
     stopMusic: function () {
       this.isPlayingMusic = false;
@@ -298,209 +197,90 @@
     },
 
     /**
-     * Plays voiceover cue `clipId` (1..13) with character `role` ('narrator' | 'quan' | 'minh').
-     * - Ducks music to 0.05 during dialogue and restores to 0.15 after completion.
-     * - Connects the MP3 `Audio` element to `this.analyser` (`fftSize = 256`) for real-time RMS lip-sync.
-     * - Falls back seamlessly to the 3-character syllable-cadence synthesizer if the MP3 is missing (404).
+     * Plays voiceover `clipId` (1..6) for `role` ('narrator' | 'quan' | 'minh').
+     * - Stops any currently playing clip (`clip.pause(); clip.currentTime = 0;`).
+     * - Sets `this.synthUntil = performance.now() + Math.min(8500, text.length * 52)` and `this.currentRole = role`.
+     * - Tries `this.clips[clipId].play()`; if missing (404), silently falls back to the mathematical wave in `getMouthOpen(t)`.
+     * - Never spawns oscillators or intervals for voice.
      */
     speak: function (text, clipId = 1, role = 'narrator') {
-      const safeText = typeof text === 'string' ? text : '';
-      const safeClipId = Math.max(1, Math.min(13, Number(clipId) || 1));
-      const safeRole = VOICE_PROFILES[role] ? role : 'narrator';
+      try {
+        this.preloadClips();
 
-      this._stopActiveVoice();
-
-      const ctx = this.init();
-      const nowPerf = performance.now();
-      const fallbackDurationMs = Math.max(1200, Math.min(9500, safeText.length * 58));
-
-      this.activeClipId = safeClipId;
-      this.activeRole = safeRole;
-      this.speechStartTime = nowPerf;
-      this.speechUntil = nowPerf + fallbackDurationMs;
-
-      // Duck Lo-Fi background underscore to 0.05 while voice is active
-      this._setMusicDuck(true);
-
-      const slot = this.clips[safeClipId];
-      const self = this;
-
-      // Attempt to play preloaded MP3 (`assets/voice{1..13}.mp3`) if it hasn't 404'd
-      if (slot && slot.audio && !slot.failed && ctx && this.analyser) {
-        try {
-          if (!slot.sourceNode) {
-            slot.sourceNode = ctx.createMediaElementSource(slot.audio);
-            slot.sourceNode.connect(this.analyser);
+        // 1. Stop any currently playing voice clip cleanly
+        for (let i = 1; i <= 6; i++) {
+          const c = this.clips[i];
+          if (c) {
+            try {
+              c.pause();
+              c.currentTime = 0;
+            } catch (err) {}
           }
+        }
+        this.activeClip = null;
 
-          slot.audio.currentTime = 0;
-          const playPromise = slot.audio.play();
+        // 2. Compute synth timing window & store role
+        const safeText = typeof text === 'string' ? text : '';
+        const durationMs = Math.min(8500, Math.max(900, safeText.length * 52));
+        this.synthUntil = performance.now() + durationMs;
+        this.currentRole = role || 'narrator';
 
+        // Smoothly duck background music while dialogue is active
+        this._updateMusicDuck(true);
+
+        // 3. Try playing `this.clips[clipId]` if available
+        const idx = Math.max(1, Math.min(6, Number(clipId) || 1));
+        const clip = this.clips[idx];
+
+        if (clip && !clip._missing && !this.muted) {
+          const self = this;
+          this.activeClip = clip;
+          const playPromise = clip.play();
           if (playPromise && typeof playPromise.then === 'function') {
             playPromise
               .then(function () {
-                self.activeAudio = slot.audio;
-                self.usingLiveAnalyser = true;
-                const clipDurMs =
-                  slot.audio.duration && isFinite(slot.audio.duration)
-                    ? slot.audio.duration * 1000
-                    : fallbackDurationMs;
-                self.speechUntil = performance.now() + clipDurMs;
+                if (clip.duration && isFinite(clip.duration) && clip.duration > 0) {
+                  self.synthUntil = performance.now() + clip.duration * 1000;
+                }
               })
               .catch(function () {
-                // MP3 missing (404) or blocked -> seamlessly trigger 3-character fallback synth
-                slot.failed = true;
-                self._playFallbackCadence(safeText, safeRole, fallbackDurationMs, safeClipId);
+                // Silent 404 / autoplay fallback: `getMouthOpen(t)` continues driving lip-sync until `self.synthUntil`
+                clip._missing = true;
+                self.activeClip = null;
               });
-            return;
           }
-        } catch (e) {
-          slot.failed = true;
-        }
-      }
-
-      // Immediate fallback if MP3 is already known to be 404 or unavailable
-      this._playFallbackCadence(safeText, safeRole, fallbackDurationMs, safeClipId);
-    },
-
-    /**
-     * Expressive 3-character syllable-cadence fallback synthesizer when MP3 is missing (404).
-     * Strictly bounded loop (max 36 syllables) with automatic node disconnection.
-     */
-    _playFallbackCadence: function (text, role, durationMs, seedId) {
-      const self = this;
-      this.usingLiveAnalyser = false;
-      this.speechStartTime = performance.now();
-      this.speechUntil = this.speechStartTime + durationMs;
-
-      // Schedule music duck restoration when fallback speech ends
-      this.duckRestoreTimer = setTimeout(function () {
-        self._setMusicDuck(false);
-      }, durationMs + 60);
-
-      if (this.muted) return;
-
-      try {
-        const ctx = this.init();
-        if (!ctx) return;
-
-        const profile = VOICE_PROFILES[role] || VOICE_PROFILES.narrator;
-        const now = ctx.currentTime;
-        const totalSec = durationMs * 0.001;
-
-        // Bounded syllable count: max 36 expressive phoneme bursts across the utterance
-        const syllableCount = Math.max(4, Math.min(36, Math.floor(totalSec * profile.syllableRate)));
-        const stepSec = totalSec / syllableCount;
-
-        for (let i = 0; i < syllableCount; i++) {
-          const charCode = text.charCodeAt(i % Math.max(1, text.length)) || 72;
-          // Create natural punctuation pauses every few words
-          if (i > 0 && i % 7 === 0) {
-            continue;
-          }
-
-          const startT = now + i * stepSec;
-          const durT = Math.min(0.16, stepSec * 0.78);
-          const normPitch = ((charCode * 17 + i * 31 + seedId * 13) % 100) / 100;
-
-          // Intonation curve: slight rise at start, gentle fall at end of sentence
-          const phraseArc = Math.sin((i / syllableCount) * Math.PI) * 18;
-          const f0 =
-            profile.baseMin +
-            normPitch * (profile.baseMax - profile.baseMin) +
-            phraseArc;
-          const f1 = f0 * (0.96 + hash(i + seedId) * 0.12);
-
-          const osc = ctx.createOscillator();
-          const formantFilter = ctx.createBiquadFilter();
-          const gain = ctx.createGain();
-
-          osc.type = i % 3 === 0 ? profile.subWave : profile.wave;
-          osc.frequency.setValueAtTime(f0, startT);
-          osc.frequency.exponentialRampToValueAtTime(Math.max(80, f1), startT + durT);
-
-          // Soft vocal formant band-pass shaping
-          formantFilter.type = 'bandpass';
-          formantFilter.frequency.setValueAtTime(f0 * 2.4, startT);
-          formantFilter.Q.setValueAtTime(1.4, startT);
-
-          gain.gain.setValueAtTime(0.0001, startT);
-          gain.gain.linearRampToValueAtTime(profile.gainPeak, startT + 0.022);
-          gain.gain.exponentialRampToValueAtTime(0.0001, startT + durT);
-
-          osc.connect(formantFilter);
-          formantFilter.connect(gain);
-          gain.connect(ctx.destination);
-
-          osc.start(startT);
-          osc.stop(startT + durT + 0.01);
-
-          this.fallbackNodes.push(osc);
-
-          osc.onended = function () {
-            try {
-              osc.disconnect();
-              formantFilter.disconnect();
-              gain.disconnect();
-            } catch (err) {}
-          };
         }
       } catch (e) {}
     },
 
     /**
-     * Returns a smooth mouth-open ratio in `[0, 1]`:
-     * - When an MP3 is actively playing, computes real-time RMS amplitude from `this.analyser`
-     *   (128 time-domain samples).
-     * - When running the 3-character fallback synthesizer, computes the character-specific
-     *   syllable cadence envelope so lip-sync stays expressive and alive.
+     * Returns a smooth mouth-open ratio in `[0, 1]` driven by the dynamic multi-harmonic syllable wave
+     * `Math.abs(Math.sin(t * 17) * Math.cos(t * 9.5) * Math.sin(t * 5))` until `this.synthUntil`.
      */
     getMouthOpen: function (t) {
       const nowPerf = performance.now();
-
-      // 1. Live MP3 Waveform RMS Lip-Sync via AnalyserNode (fftSize = 256 -> 128 bins)
-      if (this.usingLiveAnalyser && this.activeAudio && !this.activeAudio.paused && this.analyser) {
-        try {
-          this.analyser.getByteTimeDomainData(this.timeDomainData);
-          let sumSquares = 0;
-          // Strictly bounded loop: 64 samples (every 2nd sample of 128 buffer, <= 64 iterations)
-          for (let i = 0; i < 64; i++) {
-            const sample = (this.timeDomainData[i * 2] - 128) / 128.0;
-            sumSquares += sample * sample;
-          }
-          const rms = Math.sqrt(sumSquares / 64);
-          // Noise gate + responsive vocal gain scaling
-          const mouth = (rms - 0.015) * 6.5;
-          return Math.max(0, Math.min(1.0, mouth));
-        } catch (e) {}
-      }
-
-      // 2. Fallback 3-Character Syllable-Cadence Lip-Sync Envelope
-      if (nowPerf >= this.speechUntil) {
+      if (nowPerf >= this.synthUntil) {
+        if (this.activeClip) {
+          this.activeClip = null;
+          this._updateMusicDuck(false);
+        }
         return 0;
       }
 
-      const profile = VOICE_PROFILES[this.activeRole] || VOICE_PROFILES.narrator;
-      const elapsedSec = (nowPerf - this.speechStartTime) * 0.001;
-      const rate = profile.syllableRate;
+      // Convert `t` to seconds if passed in milliseconds, or use `nowPerf * 0.001`
+      const rawT = typeof t === 'number' ? t : nowPerf;
+      const tSec = rawT > 500 ? rawT * 0.001 : rawT;
 
-      // Phrase breathing pauses aligned with fallback cadence
-      const syllableIndex = Math.floor(elapsedSec * rate);
-      if (syllableIndex > 0 && syllableIndex % 7 === 0) {
-        return 0.06;
-      }
+      const wave = Math.abs(
+        Math.sin(tSec * 17) * Math.cos(tSec * 9.5) * Math.sin(tSec * 5)
+      );
 
-      const phase = elapsedSec * rate * Math.PI * 2;
-      const primaryPulse = Math.max(0, Math.sin(phase));
-      const secondaryMod = 0.65 + 0.35 * Math.cos(elapsedSec * 19.5 + this.activeClipId);
-      const openAmount = Math.pow(primaryPulse, 0.75) * secondaryMod;
-
-      return Math.max(0.04, Math.min(1.0, openAmount));
+      return Math.max(0.04, Math.min(1.0, wave * 1.45));
     },
 
     /**
-     * Lightweight single-shot documentary & sci-fi foley SFX wrapped in try/catch.
-     * Supports: 'whoosh', 'zeroG', 'spark', 'quantum', 'snap', 'thud', 'tick', and default chime.
+     * Plays crisp, single-shot physical Foley SFX (< 0.3s) wrapped in `try/catch`.
+     * Supported cues: 'whoosh', 'zeroG', 'pop', 'powerDown', 'timeWarp', 'snap', 'bounce'.
      */
     playSFX: function (name) {
       if (this.muted) return;
@@ -511,30 +291,31 @@
         const now = ctx.currentTime;
         const key = String(name || '').toLowerCase();
 
-        if (key.indexOf('whoosh') !== -1) {
-          // Cinematic camera / portal whoosh (filtered triangle sweep)
+        if (key === 'whoosh') {
+          // Fast camera whip-pan air sweep (< 0.26s)
           const osc = ctx.createOscillator();
           const filter = ctx.createBiquadFilter();
           const gain = ctx.createGain();
 
           osc.type = 'sawtooth';
-          osc.frequency.setValueAtTime(220, now);
-          osc.frequency.exponentialRampToValueAtTime(68, now + 0.32);
+          osc.frequency.setValueAtTime(260, now);
+          osc.frequency.exponentialRampToValueAtTime(65, now + 0.24);
 
-          filter.type = 'lowpass';
-          filter.frequency.setValueAtTime(900, now);
-          filter.frequency.exponentialRampToValueAtTime(180, now + 0.32);
+          filter.type = 'bandpass';
+          filter.frequency.setValueAtTime(780, now);
+          filter.frequency.exponentialRampToValueAtTime(210, now + 0.24);
+          filter.Q.setValueAtTime(1.2, now);
 
           gain.gain.setValueAtTime(0.001, now);
-          gain.gain.linearRampToValueAtTime(0.065, now + 0.06);
-          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.33);
+          gain.gain.linearRampToValueAtTime(0.075, now + 0.04);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
 
           osc.connect(filter);
           filter.connect(gain);
           gain.connect(ctx.destination);
 
           osc.start(now);
-          osc.stop(now + 0.34);
+          osc.stop(now + 0.26);
           osc.onended = function () {
             try {
               osc.disconnect();
@@ -542,24 +323,26 @@
               gain.disconnect();
             } catch (err) {}
           };
-        } else if (key.indexOf('zerog') !== -1) {
-          // Weightless anti-gravity shimmer (dual sine harmonic)
+        } else if (key === 'zerog') {
+          // Rising ethereal harmonic shimmer when gravity turns off (< 0.29s)
           for (let i = 0; i < 2; i++) {
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
+
             osc.type = 'sine';
-            const baseF = i === 0 ? 340 : 510;
-            osc.frequency.setValueAtTime(baseF, now);
-            osc.frequency.exponentialRampToValueAtTime(baseF * 1.45, now + 0.45);
+            const startHz = i === 0 ? 380 : 570;
+            osc.frequency.setValueAtTime(startHz, now);
+            osc.frequency.exponentialRampToValueAtTime(startHz * 1.55, now + 0.27);
 
             gain.gain.setValueAtTime(0.001, now);
-            gain.gain.linearRampToValueAtTime(0.04, now + 0.12);
-            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.46);
+            gain.gain.linearRampToValueAtTime(0.048, now + 0.06);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
 
             osc.connect(gain);
             gain.connect(ctx.destination);
+
             osc.start(now);
-            osc.stop(now + 0.47);
+            osc.stop(now + 0.29);
             osc.onended = function () {
               try {
                 osc.disconnect();
@@ -567,132 +350,150 @@
               } catch (err) {}
             };
           }
-        } else if (key.indexOf('spark') !== -1) {
-          // High-voltage electric filament crackle
+        } else if (key === 'pop') {
+          // Water-droplet surface-tension pop when touching floating coffee (< 0.12s)
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
-          osc.type = 'sawtooth';
-          osc.frequency.setValueAtTime(1850, now);
-          osc.frequency.exponentialRampToValueAtTime(620, now + 0.09);
-          osc.frequency.setValueAtTime(2400, now + 0.045);
 
-          gain.gain.setValueAtTime(0.055, now);
-          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.11);
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(420, now);
+          osc.frequency.exponentialRampToValueAtTime(1380, now + 0.085);
+
+          gain.gain.setValueAtTime(0.001, now);
+          gain.gain.linearRampToValueAtTime(0.085, now + 0.012);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.10);
 
           osc.connect(gain);
           gain.connect(ctx.destination);
+
           osc.start(now);
-          osc.stop(now + 0.12);
+          osc.stop(now + 0.11);
           osc.onended = function () {
             try {
               osc.disconnect();
               gain.disconnect();
             } catch (err) {}
           };
-        } else if (key.indexOf('quantum') !== -1) {
-          // Deep harmonic quantum resonance pulse
-          for (let i = 0; i < 2; i++) {
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.type = i === 0 ? 'sine' : 'triangle';
-            const startF = i === 0 ? 110 : 528;
-            const endF = i === 0 ? 55 : 880;
-            osc.frequency.setValueAtTime(startF, now);
-            osc.frequency.exponentialRampToValueAtTime(endF, now + 0.38);
+        } else if (key === 'powerdown') {
+          // Descending electrical hum when city lights black out (< 0.29s)
+          const osc = ctx.createOscillator();
+          const filter = ctx.createBiquadFilter();
+          const gain = ctx.createGain();
 
-            gain.gain.setValueAtTime(0.001, now);
-            gain.gain.linearRampToValueAtTime(0.05, now + 0.05);
-            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.40);
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(320, now);
+          osc.frequency.exponentialRampToValueAtTime(44, now + 0.27);
 
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start(now);
-            osc.stop(now + 0.41);
-            osc.onended = function () {
-              try {
-                osc.disconnect();
-                gain.disconnect();
-              } catch (err) {}
-            };
-          }
-        } else if (key.indexOf('snap') !== -1) {
-          // Crisp finger/chalk snap transient
+          filter.type = 'lowpass';
+          filter.frequency.setValueAtTime(950, now);
+          filter.frequency.exponentialRampToValueAtTime(90, now + 0.27);
+
+          gain.gain.setValueAtTime(0.075, now);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+
+          osc.connect(filter);
+          filter.connect(gain);
+          gain.connect(ctx.destination);
+
+          osc.start(now);
+          osc.stop(now + 0.29);
+          osc.onended = function () {
+            try {
+              osc.disconnect();
+              filter.disconnect();
+              gain.disconnect();
+            } catch (err) {}
+          };
+        } else if (key === 'timewarp') {
+          // Deep slow-motion clock tick & pitch bend (< 0.28s)
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
+
           osc.type = 'triangle';
-          osc.frequency.setValueAtTime(1450, now);
-          osc.frequency.exponentialRampToValueAtTime(320, now + 0.055);
+          osc.frequency.setValueAtTime(1100, now);
+          osc.frequency.exponentialRampToValueAtTime(115, now + 0.25);
 
           gain.gain.setValueAtTime(0.08, now);
-          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.26);
 
           osc.connect(gain);
           gain.connect(ctx.destination);
+
           osc.start(now);
-          osc.stop(now + 0.065);
+          osc.stop(now + 0.27);
           osc.onended = function () {
             try {
               osc.disconnect();
               gain.disconnect();
             } catch (err) {}
           };
-        } else if (key.indexOf('thud') !== -1) {
-          // Warm book/table impact thud
+        } else if (key === 'snap') {
+          // Crisp finger-snap transient click (< 0.08s)
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(135, now);
-          osc.frequency.exponentialRampToValueAtTime(42, now + 0.18);
 
-          gain.gain.setValueAtTime(0.09, now);
-          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.19);
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(1650, now);
+          osc.frequency.exponentialRampToValueAtTime(340, now + 0.055);
+
+          gain.gain.setValueAtTime(0.095, now);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.065);
 
           osc.connect(gain);
           gain.connect(ctx.destination);
+
           osc.start(now);
-          osc.stop(now + 0.20);
+          osc.stop(now + 0.07);
           osc.onended = function () {
             try {
               osc.disconnect();
               gain.disconnect();
             } catch (err) {}
           };
-        } else if (key.indexOf('tick') !== -1) {
-          // Precision pocket-watch / chalkboard tick
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(2200, now);
-          osc.frequency.exponentialRampToValueAtTime(900, now + 0.025);
+        } else if (key === 'bounce') {
+          // Realistic multi-tap wood table impact (primary thud + lighter secondary tap, < 0.29s)
+          for (let i = 0; i < 2; i++) {
+            const tapStart = now + i * 0.13;
+            const tapDur = i === 0 ? 0.11 : 0.08;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
 
-          gain.gain.setValueAtTime(0.045, now);
-          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(i === 0 ? 155 : 195, tapStart);
+            osc.frequency.exponentialRampToValueAtTime(i === 0 ? 48 : 68, tapStart + tapDur);
 
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(now);
-          osc.stop(now + 0.035);
-          osc.onended = function () {
-            try {
-              osc.disconnect();
-              gain.disconnect();
-            } catch (err) {}
-          };
+            gain.gain.setValueAtTime(i === 0 ? 0.095 : 0.048, tapStart);
+            gain.gain.exponentialRampToValueAtTime(0.0001, tapStart + tapDur);
+
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+
+            osc.start(tapStart);
+            osc.stop(tapStart + tapDur + 0.01);
+            osc.onended = function () {
+              try {
+                osc.disconnect();
+                gain.disconnect();
+              } catch (err) {}
+            };
+          }
         } else {
-          // Default warm harmonic cue
+          // Default clean UI / harmonic cue (< 0.18s)
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
+
           osc.type = 'sine';
           osc.frequency.setValueAtTime(528, now);
-          osc.frequency.exponentialRampToValueAtTime(792, now + 0.16);
+          osc.frequency.exponentialRampToValueAtTime(792, now + 0.15);
 
-          gain.gain.setValueAtTime(0.045, now);
-          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.17);
+          gain.gain.setValueAtTime(0.05, now);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
 
           osc.connect(gain);
           gain.connect(ctx.destination);
+
           osc.start(now);
-          osc.stop(now + 0.18);
+          osc.stop(now + 0.17);
           osc.onended = function () {
             try {
               osc.disconnect();
@@ -704,6 +505,6 @@
     }
   };
 
-  // Preload the 13 voiceover slots immediately on script load
+  // Preload `assets/voice1.mp3` .. `assets/voice6.mp3` immediately on script load
   window.IntroAudio.preloadClips();
 })();
